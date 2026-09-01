@@ -110,6 +110,7 @@
     pickTag: "",
     pickTerm: "post_date_and_popularity",
     health: null,
+    desktopPath: "",
     detectTimer: 0,
     toastTimer: 0,
     cardView: "grid",
@@ -820,7 +821,7 @@
     const sites = data.sites || [];
     const any = sites.some((s) => s.count > 0);
     if (!any) {
-      host.innerHTML = `<p class="lib-empty">还没有收入任何成品。解析并确认后，文件会按来源放进这个目录。</p>`;
+      host.innerHTML = `<p class="lib-empty">还没有收入任何成品。解析并确认后，文件会按来源放进这个目录（默认是桌面）。</p>`;
     } else {
       host.innerHTML = sites
         .map((s) => {
@@ -885,7 +886,8 @@
 
   async function openSettings() {
     const [settings, health] = await Promise.all([api("/api/settings"), api("/api/health")]);
-    $("set-library").value = settings.library || "";
+    state.desktopPath = settings.desktop || "";
+    $("set-library").value = settings.library || state.desktopPath || "";
     $("set-limit").value = settings.limit || 40;
     $("set-workers").value = settings.workers || 64;
     renderHealth(health);
@@ -896,6 +898,10 @@
     openSettings().catch((err) => {
       hint.textContent = String(err.message || err);
     });
+  });
+  $("btn-use-desktop").addEventListener("click", () => {
+    const path = state.desktopPath;
+    if (path) $("set-library").value = path;
   });
   $("health-dot").addEventListener("click", () => $("btn-settings").click());
 

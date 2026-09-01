@@ -845,6 +845,25 @@ dialog h2 {
   font-weight: 500;
 }
 .dlg-sub { margin: 8px 0 0; color: var(--muted); font-size: 13px; word-break: break-all; }
+.path-field { margin: 12px 0; }
+.path-field > label { display: block; margin: 0; font-size: 13px; color: var(--muted); }
+.path-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin-top: 6px;
+}
+.path-row input {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+}
+.path-row .ghost {
+  flex: 0 0 auto;
+  align-self: center;
+  white-space: nowrap;
+}
+.path-field small { display: block; margin-top: 6px; color: var(--faint); font-size: 12px; }
 .set-block { margin-top: 22px; }
 .set-block h3 {
   margin: 0 0 10px;

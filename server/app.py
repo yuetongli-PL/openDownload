@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from .engine import detect, health
 from .jable_lists import catalog as jable_catalog
 from .jobs import RUNNER
-from .paths import WEB_ROOT, cookie_path, library_dir, load_settings, save_settings
+from .paths import WEB_ROOT, cookie_path, library_dir, resolve_library, save_settings, settings_public
 
 app = FastAPI(title="openDownload", docs_url=None, redoc_url=None)
 
@@ -66,14 +66,14 @@ def api_health() -> dict[str, Any]:
 
 @app.get("/api/settings")
 def api_settings() -> dict[str, Any]:
-    return load_settings()
+    return settings_public()
 
 
 @app.post("/api/settings")
 def api_settings_save(body: SettingsIn) -> dict[str, Any]:
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
     if "library" in patch:
-        path = Path(str(patch["library"])).expanduser()
+        path = resolve_library(patch["library"])
         path.mkdir(parents=True, exist_ok=True)
         patch["library"] = str(path)
     return save_settings(patch)

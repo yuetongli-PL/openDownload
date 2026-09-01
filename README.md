@@ -34,7 +34,7 @@ python -m server
 
 **环境**（右上角）负责：馆藏路径、列表条数、并行连接数、抖音 cookie，以及 FFmpeg / yt-dlp / Playwright 是否就绪。
 
-保存目录默认是本仓库下的 `library\`，按来源分成 `jable\`、`youtube\`、`douyin\`。
+保存目录默认是本机**桌面**，按来源分成 `jable\`、`youtube\`、`douyin\`。可在环境页改路径，或点「使用桌面」恢复。
 
 ## 脚本从哪来
 
