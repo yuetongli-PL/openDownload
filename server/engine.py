@@ -13,7 +13,15 @@ from contextlib import contextmanager
 from typing import Any, Callable, Iterator
 from urllib.parse import parse_qs, urlparse
 
-from .paths import PY_ROOT, cookie_path, find_ffmpeg, find_python, library_dir, load_settings
+from .paths import (
+    PY_ROOT,
+    cookie_path,
+    find_ffmpeg,
+    find_python,
+    library_dir,
+    load_settings,
+    youtube_cookie_path,
+)
 
 LogFn = Callable[[str], None]
 
@@ -481,9 +489,22 @@ def _preview_jable_user(raw: str, *, limit: int, log: LogFn | None) -> dict[str,
     }
 
 
+def _apply_youtube_auth(log: LogFn | None = None) -> None:
+    from youtube_parse import set_youtube_auth
+
+    cookie = youtube_cookie_path()
+    browser = str(load_settings().get("youtube_browser") or "").strip()
+    set_youtube_auth(cookiefile=cookie if cookie.is_file() else None, browser=browser)
+    if cookie.is_file():
+        _log(log, f"youtube cookies: {cookie}")
+    elif browser:
+        _log(log, f"youtube cookies-from-browser: {browser}")
+
+
 def _preview_youtube(found: dict[str, Any], *, limit: int, tab: str, log: LogFn | None) -> dict[str, Any]:
     from youtube_parse import LIST_KINDS, VIDEO_KINDS, extract_info, parse_target
 
+    _apply_youtube_auth(log)
     raw = found["query"]
     as_channel = found["kind"] == "channel" or (
         found["kind"] != "video" and not re.search(r"https?://", raw) and not YT_ID_RE.fullmatch(raw)
@@ -886,6 +907,12 @@ def build_commands(
                 "--no-grok-voice",
                 "--no-grok-zh",
             ]
+            yt_cookie = youtube_cookie_path()
+            if yt_cookie.is_file():
+                argv.extend(["--cookies", str(yt_cookie)])
+            browser = str(load_settings().get("youtube_browser") or "").strip()
+            if browser:
+                argv.extend(["--cookies-from-browser", browser])
             if not subs:
                 argv.append("--no-subs")
             cmds.append({"argv": argv, "cwd": str(lib), "label": f"YouTube {iid}", "id": iid})
@@ -897,6 +924,7 @@ def build_commands(
 def health() -> dict[str, Any]:
     ffmpeg = find_ffmpeg()
     cookies = cookie_path()
+    yt_cookie = youtube_cookie_path()
     yt_dlp_ver = ""
     try:
         from yt_dlp.version import __version__ as yt_ver
@@ -916,6 +944,8 @@ def health() -> dict[str, Any]:
         "yt_dlp": yt_dlp_ver,
         "playwright": playwright_ok,
         "cookie": cookies.is_file() and cookies.stat().st_size > 20,
+        "youtube_cookie": yt_cookie.is_file() and yt_cookie.stat().st_size > 20,
+        "youtube_browser": str(load_settings().get("youtube_browser") or ""),
         "library": str(library_dir()),
         "settings": load_settings(),
     }

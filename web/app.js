@@ -856,6 +856,13 @@
       { ok: !!health.yt_dlp, name: "yt-dlp", help: "YouTube 解析与下载", detail: health.yt_dlp || "未找到" },
       { ok: !!health.playwright, name: "Playwright", help: "抖音登录类页面", detail: health.playwright ? "已安装" : "未安装" },
       { ok: !!health.cookie, name: "抖音 cookie", help: "主页 / 喜欢 / 关注 / 话题", detail: health.cookie ? "已加载" : "未找到" },
+      {
+        ok: !!health.youtube_cookie || !!health.youtube_browser,
+        optional: true,
+        name: "YouTube 登录",
+        help: "机器人验证时需要",
+        detail: health.youtube_cookie ? "已加载 cookie" : health.youtube_browser ? health.youtube_browser : "未配置",
+      },
     ];
     const list = $("set-health-list");
     if (list) {
@@ -864,7 +871,9 @@
           (it) =>
             `<li><span>${escapeHtml(it.name)}<small style="display:block;color:var(--faint)">${escapeHtml(
               it.help
-            )}</small></span><span class="${it.ok ? "ok" : "bad"}">${escapeHtml(it.ok ? "就绪" : "缺少")}</span></li>`
+            )}</small></span><span class="${it.ok ? "ok" : it.optional ? "" : "bad"}">${escapeHtml(
+              it.ok ? "就绪" : it.optional ? "未配置" : "缺少"
+            )}</span></li>`
         )
         .join("");
     }
@@ -888,6 +897,7 @@
     $("set-library").value = settings.library || "";
     $("set-limit").value = settings.limit || 40;
     $("set-workers").value = settings.workers || 64;
+    if ($("set-yt-browser")) $("set-yt-browser").value = settings.youtube_browser || health.youtube_browser || "";
     renderHealth(health);
     if (!settingsDlg.open) settingsDlg.showModal();
   }
@@ -905,9 +915,12 @@
       library: $("set-library").value,
       limit: Number($("set-limit").value || 40),
       workers: Number($("set-workers").value || 64),
+      youtube_browser: $("set-yt-browser") ? $("set-yt-browser").value : "",
     });
     const cookie = $("set-cookie").value.trim();
     if (cookie) await api("/api/cookie", { text: cookie });
+    const ytCookie = $("set-yt-cookie") ? $("set-yt-cookie").value.trim() : "";
+    if (ytCookie) await api("/api/cookie", { text: ytCookie, site: "youtube" });
     settingsDlg.close();
     hint.textContent = "环境已保存";
     toast("环境已保存");

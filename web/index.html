@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='10' cy='10' r='5' fill='%234285f4'/%3E%3Ccircle cx='22' cy='10' r='5' fill='%23ea4335'/%3E%3Ccircle cx='10' cy='22' r='5' fill='%23fbbc04'/%3E%3Ccircle cx='22' cy='22' r='5' fill='%2334a853'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/static/styles.css?v=3">
+  <link rel="stylesheet" href="/static/styles.css?v=4">
 </head>
 <body data-site="auto" data-phase="idle">
   <a class="skip" href="#query">跳到输入框</a>
@@ -354,6 +354,28 @@
       </section>
 
       <section class="set-block">
+        <h3>YouTube 登录</h3>
+        <p class="hint">公开视频一般不用登录。若解析出现「Sign in to confirm you’re not a bot」，选本机浏览器或粘贴 cookies.txt。</p>
+        <label>从本机浏览器读取
+          <select id="set-yt-browser">
+            <option value="">不读取</option>
+            <option value="chrome">Chrome</option>
+            <option value="edge">Edge</option>
+            <option value="firefox">Firefox</option>
+          </select>
+          <small>Windows 默认尝试 Chrome。浏览器正在运行有时会读不到，可改用下方粘贴。</small>
+        </label>
+        <ol class="steps">
+          <li>用浏览器登录 <a href="https://www.youtube.com/" target="_blank" rel="noreferrer">youtube.com</a></li>
+          <li>用 Get cookies.txt LOCALLY 导出 Netscape 格式</li>
+          <li>把全文粘贴到下方并保存，文件会写入 python/youtube_cookie.txt</li>
+        </ol>
+        <label>YouTube Cookie
+          <textarea id="set-yt-cookie" rows="5" placeholder="# Netscape HTTP Cookie File 或 youtube.com cookie"></textarea>
+        </label>
+      </section>
+
+      <section class="set-block">
         <h3>抖音登录</h3>
         <ol class="steps">
           <li>用 Chrome 登录 <a href="https://www.douyin.com/?recommend=1" target="_blank" rel="noreferrer">douyin.com</a></li>
@@ -372,6 +394,6 @@
     </form>
   </dialog>
 
-  <script src="/static/app.js?v=3"></script>
+  <script src="/static/app.js?v=4"></script>
 </body>
 </html>

@@ -51,6 +51,40 @@ def test_jable_username():
     assert d["kind"] == "video"
 
 
+def test_youtube_bot_check_opts_and_cookies():
+    import tempfile
+
+    from youtube_parse import (
+        explain_youtube_error,
+        is_youtube_bot_check,
+        set_youtube_auth,
+        ytdlp_base_opts,
+    )
+
+    try:
+        opts = ytdlp_base_opts()
+        clients = opts["extractor_args"]["youtube"]["player_client"]
+        assert clients[0] == "tv"
+        assert "web" in clients
+        assert "cookiefile" not in opts
+        msg = "ERROR: [youtube] -xP1WpahG5I: Sign in to confirm you’re not a bot"
+        assert is_youtube_bot_check(msg)
+        hint = explain_youtube_error(msg)
+        assert "cookies.txt" in hint or "Chrome" in hint
+        with tempfile.TemporaryDirectory() as raw:
+            cookie = Path(raw) / "youtube_cookie.txt"
+            cookie.write_text("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tx\n", encoding="utf-8")
+            set_youtube_auth(cookiefile=cookie)
+            attached = ytdlp_base_opts()
+            assert attached.get("cookiefile") == str(cookie)
+        set_youtube_auth(browser="chrome")
+        browsed = ytdlp_base_opts()
+        assert browsed.get("cookiesfrombrowser") == ("chrome",)
+        assert "cookiefile" not in browsed
+    finally:
+        set_youtube_auth()
+
+
 def test_youtube_url_and_handle():
     a = detect("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
     assert a["site"] == "youtube" and a["kind"] == "video"

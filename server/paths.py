@@ -23,6 +23,7 @@ def load_settings() -> dict:
         "limit": 40,
         "workers": 64,
         "port": 8765,
+        "youtube_browser": "chrome" if os.name == "nt" else "",
     }
     if SETTINGS_PATH.is_file():
         try:
@@ -82,3 +83,7 @@ def find_ffmpeg() -> Path | None:
 
 def cookie_path() -> Path:
     return PY_ROOT / "cookie.txt"
+
+
+def youtube_cookie_path() -> Path:
+    return PY_ROOT / "youtube_cookie.txt"

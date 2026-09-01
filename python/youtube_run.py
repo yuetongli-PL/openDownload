@@ -25,6 +25,7 @@ from youtube_parse import (
     relayout_dir,
     save_item,
     safe_dirname,
+    set_youtube_auth,
     source_lang_name,
     sub_langs_for_source,
     write_subtitles,
@@ -408,6 +409,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_false",
         help="do not send demuxed audio to Grok Speech-to-Text",
     )
+    parser.add_argument("--cookies", help="Netscape cookies.txt for YouTube")
+    parser.add_argument(
+        "--cookies-from-browser",
+        dest="cookies_from_browser",
+        default="",
+        help="read YouTube login from chrome, edge, or firefox",
+    )
     return parser.parse_args(argv)
 
 
@@ -455,6 +463,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else f"done: {result}")
         return 0 if result.get("ok") else 1
+    set_youtube_auth(cookiefile=args.cookies, browser=args.cookies_from_browser)
     raw = args.url
     if not raw:
         try:
