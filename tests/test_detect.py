@@ -114,6 +114,25 @@ def test_task_emit_progress_snapshot():
     assert task.percent >= 0
 
 
+def test_desktop_library_aliases():
+    from server.paths import desktop_dir, persist_library, resolve_library, settings_public
+
+    desk = desktop_dir()
+    assert resolve_library("desktop") == desk
+    assert resolve_library("Desktop") == desk
+    assert resolve_library("桌面") == desk
+    assert resolve_library("") == desk
+    custom = Path("/tmp/openDownload-custom-lib")
+    assert resolve_library(str(custom)) == custom
+    assert persist_library("desktop") == "desktop"
+    assert persist_library("桌面") == "desktop"
+    assert persist_library(str(desk)) == "desktop"
+    assert persist_library(str(custom)) == str(custom)
+    pub = settings_public()
+    assert pub["library"] == str(desk)
+    assert pub["desktop"] == str(desk)
+
+
 def test_library_scan_lists_media(tmp_path=None):
     import tempfile
 

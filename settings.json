@@ -1,5 +1,5 @@
 {
-  "library": "C:\\Users\\lyt-p\\Desktop\\openDownload\\library",
+  "library": "desktop",
   "limit": 40,
   "workers": 64,
   "port": 8765

@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='10' cy='10' r='5' fill='%234285f4'/%3E%3Ccircle cx='22' cy='10' r='5' fill='%23ea4335'/%3E%3Ccircle cx='10' cy='22' r='5' fill='%23fbbc04'/%3E%3Ccircle cx='22' cy='22' r='5' fill='%2334a853'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/static/styles.css?v=3">
+  <link rel="stylesheet" href="/static/styles.css?v=4">
 </head>
 <body data-site="auto" data-phase="idle">
   <a class="skip" href="#query">跳到输入框</a>
@@ -288,7 +288,7 @@
   </div>
 
   <footer class="colophon">
-    <p>请只下载你有权保存的内容。成品按来源放在本地馆藏目录。</p>
+    <p>请只下载你有权保存的内容。成品默认按来源放在桌面的对应文件夹。</p>
   </footer>
 
   <div id="toast" class="toast" hidden role="status"></div>
@@ -336,9 +336,14 @@
 
       <section class="set-block">
         <h3>保存位置</h3>
-        <label>馆藏目录
-          <input id="set-library" type="text">
-        </label>
+        <div class="path-field">
+          <label for="set-library">馆藏目录</label>
+          <div class="path-row">
+            <input id="set-library" type="text" autocomplete="off" spellcheck="false">
+            <button type="button" id="btn-use-desktop" class="ghost compact">使用桌面</button>
+          </div>
+          <small>确认保存后，成品按来源写入桌面的 jable / youtube / douyin 文件夹。</small>
+        </div>
       </section>
 
       <section class="set-block">
@@ -372,6 +377,6 @@
     </form>
   </dialog>
 
-  <script src="/static/app.js?v=3"></script>
+  <script src="/static/app.js?v=4"></script>
 </body>
 </html>
