@@ -10,6 +10,7 @@ library/*
 !library/.gitkeep
 
 python/cookie.txt
+python/youtube_cookie.txt
 
 *.mp4
 *.m4a

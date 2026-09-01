@@ -32,7 +32,7 @@ python -m server
 3. 预览清单出来后勾选要保存的条目，需要时筛选标题、切换卡片 / 列表。
 4. 点 **确认保存**。进度停在页面下方，可取消；完成后可打开 **馆藏** 查看最近文件，或在资源管理器中打开目录。
 
-**环境**（右上角）负责：馆藏路径、列表条数、并行连接数、抖音 cookie，以及 FFmpeg / yt-dlp / Playwright 是否就绪。
+**环境**（右上角）负责：馆藏路径、列表条数、并行连接数、YouTube / 抖音 cookie，以及 FFmpeg / yt-dlp / Playwright 是否就绪。
 
 保存目录默认是本仓库下的 `library\`，按来源分成 `jable\`、`youtube\`、`douyin\`。
 
@@ -47,6 +47,15 @@ python -m server
 | 抖音 | `douyin_*.py`、`cookie.txt` |
 
 下载仍由这些脚本执行，网页负责路由、确认、进度和馆藏。
+
+## YouTube 登录
+
+YouTube 有时会返回 `Sign in to confirm you’re not a bot`。解析会先走 TV 客户端；仍失败时需要登录态：
+
+1. 设置里选 **从本机浏览器读取**（Windows 默认 Chrome；也可改 Edge / Firefox），或
+2. 用 Get cookies.txt LOCALLY 导出 Netscape 格式，粘贴保存到 `python\youtube_cookie.txt`
+
+公开视频多数情况不用登录。年龄限制 / 会员内容必须带 cookie。
 
 ## 抖音 cookie
 

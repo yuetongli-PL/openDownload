@@ -682,14 +682,57 @@ def find_js_runtimes() -> dict[str, dict[str, str]]:
     return runtimes
 
 
+_YOUTUBE_COOKIE: Path | None = None
+_YOUTUBE_BROWSER: str | None = None
+YOUTUBE_BROWSERS = ("chrome", "edge", "firefox", "brave", "opera", "chromium")
+
+
+def default_youtube_cookie_path() -> Path | None:
+    here = Path(__file__).resolve().parent
+    for name in ("youtube_cookie.txt", "youtube.cookies.txt", "yt-cookies.txt"):
+        path = here / name
+        if path.is_file() and path.stat().st_size > 20:
+            return path
+    return None
+
+
+def set_youtube_auth(*, cookiefile: str | Path | None = None, browser: str | None = None) -> None:
+    global _YOUTUBE_COOKIE, _YOUTUBE_BROWSER
+    path = Path(cookiefile).expanduser() if cookiefile else None
+    _YOUTUBE_COOKIE = path if path and path.is_file() else None
+    name = (browser or "").strip().lower()
+    _YOUTUBE_BROWSER = name if name in YOUTUBE_BROWSERS else None
+
+
+def youtube_auth_hint() -> str:
+    return (
+        "YouTube 要求登录确认（机器人验证）。"
+        "请在设置里选择从 Chrome / Edge 读取登录态，或粘贴 YouTube 的 cookies.txt 后再解析。"
+    )
+
+
+def is_youtube_bot_check(exc: BaseException | str) -> bool:
+    text = str(exc).lower()
+    return "not a bot" in text or "sign in to confirm" in text
+
+
+def explain_youtube_error(exc: BaseException | str) -> str:
+    if is_youtube_bot_check(exc):
+        return youtube_auth_hint()
+    return str(exc)
+
+
 def ytdlp_base_opts(
     ffmpeg: str | None = None,
     *,
     noplaylist: bool = True,
     skip_translated_subs: bool = True,
+    cookiefile: str | Path | None = None,
+    browser: str | None = None,
 ) -> dict[str, Any]:
     youtube_args: dict[str, Any] = {
-        "player_client": ["web", "tv", "visionos"],
+        # web-first trips "Sign in to confirm you're not a bot"
+        "player_client": ["tv", "web_safari", "web"],
     }
     if skip_translated_subs:
         youtube_args["skip"] = ["translated_subs"]
@@ -699,7 +742,6 @@ def ytdlp_base_opts(
         "fragment_retries": 5,
         "extractor_retries": 3,
         "remote_components": ["ejs:github"],
-        # android_vr DASH URLs currently 403; web/tv/visionos work with Node JS n-sig
         "extractor_args": {"youtube": youtube_args},
     }
     runtimes = find_js_runtimes()
@@ -707,6 +749,19 @@ def ytdlp_base_opts(
         opts["js_runtimes"] = runtimes
     if ffmpeg:
         opts["ffmpeg_location"] = ffmpeg
+    cookie: Path | None = None
+    if cookiefile:
+        cookie = Path(cookiefile).expanduser()
+    elif _YOUTUBE_COOKIE is not None:
+        cookie = _YOUTUBE_COOKIE
+    else:
+        cookie = default_youtube_cookie_path()
+    if cookie and cookie.is_file():
+        opts["cookiefile"] = str(cookie)
+    else:
+        name = (browser or _YOUTUBE_BROWSER or "").strip().lower()
+        if name in YOUTUBE_BROWSERS:
+            opts["cookiesfrombrowser"] = (name,)
     return opts
 
 
@@ -1336,7 +1391,7 @@ def enrich_videos_data_api(video_ids: list[str], key: str) -> dict[str, dict[str
 def _video_meta_opts(ffmpeg: str | None) -> dict[str, Any]:
     opts = ytdlp_base_opts(ffmpeg, noplaylist=True)
     youtube_args = dict(((opts.get("extractor_args") or {}).get("youtube") or {}))
-    youtube_args["player_client"] = ["web"]
+    youtube_args["player_client"] = ["tv", "web_safari"]
     skip = [str(x) for x in (youtube_args.get("skip") or [])]
     for name in ("hls", "dash"):
         if name not in skip:
@@ -1470,11 +1525,31 @@ def enrich_catalog_entries(
 
 
 def _extract_raw(url: str, opts: dict[str, Any]) -> dict[str, Any]:
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-    if not info:
-        die("yt-dlp returned no info")
-    return info
+    attempts: list[dict[str, Any]] = [opts]
+    if not opts.get("cookiefile") and not opts.get("cookiesfrombrowser") and os.name == "nt":
+        for name in ("chrome", "edge"):
+            retry = dict(opts)
+            retry["cookiesfrombrowser"] = (name,)
+            attempts.append(retry)
+    last: BaseException | None = None
+    for i, attempt in enumerate(attempts):
+        try:
+            with yt_dlp.YoutubeDL(attempt) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if not info:
+                raise RuntimeError("yt-dlp returned no info")
+            return info
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            if not is_youtube_bot_check(exc) or i + 1 >= len(attempts):
+                break
+            nxt = attempts[i + 1].get("cookiesfrombrowser") or ("?",)
+            print(
+                f"warning: YouTube bot check, retry cookies-from-browser {nxt[0]}",
+                file=sys.stderr,
+                flush=True,
+            )
+    raise RuntimeError(explain_youtube_error(last or RuntimeError("yt-dlp returned no info"))) from last
 
 
 def _extract_video(target: Target, ffmpeg: str | None) -> dict[str, Any]:

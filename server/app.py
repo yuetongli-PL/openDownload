@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from .engine import detect, health
 from .jable_lists import catalog as jable_catalog
 from .jobs import RUNNER
-from .paths import WEB_ROOT, cookie_path, library_dir, load_settings, save_settings
+from .paths import WEB_ROOT, cookie_path, library_dir, load_settings, save_settings, youtube_cookie_path
 
 app = FastAPI(title="openDownload", docs_url=None, redoc_url=None)
 
@@ -53,10 +53,12 @@ class SettingsIn(BaseModel):
     library: str | None = None
     limit: int | None = None
     workers: int | None = None
+    youtube_browser: str | None = None
 
 
 class CookieIn(BaseModel):
     text: str
+    site: str = "douyin"
 
 
 @app.get("/api/health")
@@ -76,6 +78,9 @@ def api_settings_save(body: SettingsIn) -> dict[str, Any]:
         path = Path(str(patch["library"])).expanduser()
         path.mkdir(parents=True, exist_ok=True)
         patch["library"] = str(path)
+    if "youtube_browser" in patch:
+        name = str(patch["youtube_browser"]).strip().lower()
+        patch["youtube_browser"] = name if name in {"chrome", "edge", "firefox", "brave", "opera", "chromium"} else ""
     return save_settings(patch)
 
 
@@ -84,9 +89,10 @@ def api_cookie(body: CookieIn) -> dict[str, Any]:
     text = (body.text or "").strip()
     if len(text) < 20:
         raise HTTPException(400, "cookie 太短")
-    dest = cookie_path()
+    site = (body.site or "douyin").strip().lower()
+    dest = youtube_cookie_path() if site == "youtube" else cookie_path()
     dest.write_text(text + "\n", encoding="utf-8")
-    return {"ok": True, "path": str(dest)}
+    return {"ok": True, "path": str(dest), "site": site}
 
 
 @app.get("/api/jable/catalog")
