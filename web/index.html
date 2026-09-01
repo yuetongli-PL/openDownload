@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="openDownload 本地馆藏：解析 Jable、YouTube、抖音，确认后再收入本地目录。">
+  <title>openDownload</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='10' cy='10' r='5' fill='%234285f4'/%3E%3Ccircle cx='22' cy='10' r='5' fill='%23ea4335'/%3E%3Ccircle cx='10' cy='22' r='5' fill='%23fbbc04'/%3E%3Ccircle cx='22' cy='22' r='5' fill='%2334a853'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css?v=3">
+</head>
+<body data-site="auto" data-phase="idle">
+  <a class="skip" href="#query">跳到输入框</a>
+
+  <header class="masthead">
+    <div class="mast-inner">
+      <button type="button" id="btn-menu" class="icon-btn" aria-label="菜单" aria-expanded="false" aria-controls="site-router">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <a class="wordmark" href="#/auto" aria-label="openDownload 首页">
+        <span class="gdots" aria-hidden="true">
+          <i class="b"></i><i class="r"></i><i class="y"></i><i class="g"></i>
+        </span>
+        <span class="wordmark-text">
+          <strong>openDownload</strong>
+          <em>Arts &amp; Archive</em>
+        </span>
+      </a>
+      <nav id="site-router" class="site-router" role="tablist" aria-label="站点">
+        <a href="#/auto" data-site="auto" role="tab">自动</a>
+        <a href="#/jable" data-site="jable" role="tab">Jable</a>
+        <a href="#/youtube" data-site="youtube" role="tab">YouTube</a>
+        <a href="#/douyin" data-site="douyin" role="tab">抖音</a>
+      </nav>
+      <div class="top-actions">
+        <button type="button" id="health-dot" class="health-dot" title="环境状态" aria-label="环境状态">
+          <i></i>
+        </button>
+        <button type="button" id="btn-library" class="ghost">馆藏</button>
+        <button type="button" id="btn-settings" class="cta">设置</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="app">
+    <section class="hero" aria-labelledby="hero-title">
+      <p class="eyebrow" id="hero-eyebrow">本地馆藏 · 解析 · 确认 · 收藏</p>
+      <h1 id="hero-title">你想探索什么？</h1>
+      <p id="hero-lede" class="lede">粘贴链接或输入用户名，从四座馆藏里找出要保存的作品。</p>
+
+      <form id="go" class="composer" autocomplete="off">
+        <label class="sr-only" for="query">链接或用户名</label>
+        <span class="search-ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M16.2 16.2 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <input id="query" name="query" type="text" spellcheck="false"
+          placeholder="粘贴链接，或输入用户名 / 番号 / 抖音号" aria-describedby="detect-badge hint">
+        <button type="submit" id="btn-parse">解析</button>
+      </form>
+      <p id="detect-badge" class="detect-badge" aria-live="polite"></p>
+
+      <div id="site-tools" class="site-tools">
+        <div id="jable-tools" class="tool-block hidden">
+          <div class="mode-row" role="tablist" aria-label="Jable 功能">
+            <button type="button" data-jmode="link" class="active">链接</button>
+            <button type="button" data-jmode="hot">热门</button>
+            <button type="button" data-jmode="pick">选片</button>
+          </div>
+          <div id="jable-hot" class="tool-pane hidden">
+            <p class="tool-label">时间档</p>
+            <div class="chip-row" id="hot-terms"></div>
+            <p class="tool-label">主题范围</p>
+            <div class="chip-row" id="hot-cats"></div>
+            <label class="pages">每个列表页数
+              <input id="hot-pages" type="number" min="0" max="80" value="2">
+            </label>
+            <p class="tool-note">热门四档，或按 12 个主题浏览。每页约 24 部；填 0 表示抓完该列表。</p>
+          </div>
+          <div id="jable-pick" class="tool-pane hidden">
+            <p class="tool-label">大类</p>
+            <div class="chip-row" id="pick-groups"></div>
+            <p class="tool-label">子类</p>
+            <div class="chip-row scroll" id="pick-tags"></div>
+            <p class="tool-label">排序</p>
+            <div class="chip-row" id="pick-terms"></div>
+            <label class="pages">每个列表页数
+              <input id="pick-pages" type="number" min="0" max="80" value="2">
+            </label>
+            <p class="tool-note">按创作者筛选时，在上方输入框填写用户名或英文 slug。</p>
+          </div>
+        </div>
+
+        <div id="youtube-tools" class="tool-block hidden">
+          <p class="tool-label">频道分栏</p>
+          <div class="chip-row" id="yt-tabs" role="tablist" aria-label="YouTube 分栏"></div>
+          <p class="tool-note">解析频道时生效。单条视频会忽略分栏；清晰度与字幕在预览里再选。</p>
+        </div>
+
+        <div id="douyin-tools" class="tool-block hidden">
+          <div class="mode-row" role="tablist" aria-label="抖音功能">
+            <button type="button" data-dmode="link" class="active">作品 / 主页</button>
+            <button type="button" data-dmode="feed">推荐</button>
+            <button type="button" data-dmode="follow">关注流</button>
+            <button type="button" data-dmode="hashtag">话题</button>
+            <button type="button" data-dmode="likes">喜欢</button>
+          </div>
+          <p id="douyin-note" class="tool-note">公开作品链接可游客解析。主页、推荐、关注、话题、喜欢需要 cookie。</p>
+        </div>
+      </div>
+      <p id="hint" class="hint" role="status"></p>
+    </section>
+
+    <section class="sources explore" id="sources" aria-label="馆藏">
+      <div class="source-grid exhibit-grid">
+        <a class="exhibit source-card" href="#/auto" data-site="auto">
+          <div class="exhibit-visual v-auto" aria-hidden="true">
+            <svg viewBox="0 0 400 560" preserveAspectRatio="xMidYMid slice">
+              <rect width="400" height="560" fill="#2a2118"/>
+              <circle cx="210" cy="220" r="160" fill="#c45a2a"/>
+              <circle cx="120" cy="300" r="110" fill="#e6b35a"/>
+              <path d="M-20 420 C80 360 160 500 400 380 L400 560 L0 560Z" fill="#1e4d4a"/>
+              <path d="M40 80 C120 40 180 140 90 180 C40 160 20 110 40 80Z" fill="#f3e6d0"/>
+              <rect x="268" y="70" width="70" height="96" fill="#3d6b9a" transform="rotate(12 303 118)"/>
+            </svg>
+          </div>
+          <div class="exhibit-copy">
+            <span class="kicker source-kicker">Online Exhibit</span>
+            <h2>自动识别</h2>
+            <p>把链接交给馆员分拣，自动归入对应馆藏</p>
+            <span class="explore-btn">探索</span>
+          </div>
+        </a>
+        <a class="exhibit source-card" href="#/jable" data-site="jable">
+          <div class="exhibit-visual v-jable" aria-hidden="true">
+            <svg viewBox="0 0 400 560" preserveAspectRatio="xMidYMid slice">
+              <rect width="400" height="560" fill="#3a241c"/>
+              <ellipse cx="200" cy="210" rx="92" ry="118" fill="#d9b08a"/>
+              <rect x="108" y="310" width="184" height="260" rx="92" fill="#6b3a2c"/>
+              <path d="M0 430 C140 390 260 480 400 410 L400 560 L0 560Z" fill="#1a1210"/>
+              <circle cx="320" cy="120" r="54" fill="#c9a227"/>
+            </svg>
+          </div>
+          <div class="exhibit-copy">
+            <span class="kicker source-kicker">Collection</span>
+            <h2>Jable</h2>
+            <p>番号、创作者，或用热门 / 选片浏览列表</p>
+            <span class="explore-btn">探索</span>
+          </div>
+        </a>
+        <a class="exhibit source-card tone-slate" href="#/youtube" data-site="youtube">
+          <div class="exhibit-visual v-youtube" aria-hidden="true"></div>
+          <div class="exhibit-copy">
+            <span class="kicker source-kicker">Channel</span>
+            <h2>YouTube</h2>
+            <p>视频、@频道或用户名，可选分辨率与字幕</p>
+            <span class="explore-btn">探索</span>
+          </div>
+        </a>
+        <a class="exhibit source-card tone-slate" href="#/douyin" data-site="douyin">
+          <div class="exhibit-visual v-douyin" aria-hidden="true"></div>
+          <div class="exhibit-copy">
+            <span class="kicker source-kicker">Studio</span>
+            <h2>抖音</h2>
+            <p>作品、主页或抖音号；登录类功能需 cookie</p>
+            <span class="explore-btn">探索</span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <section class="focus" aria-labelledby="focus-title">
+      <div class="focus-copy">
+        <h2 id="focus-title">今日馆程…</h2>
+        <p class="focus-sub">识别来源，解析清单，勾选确认，再收入本地目录。</p>
+      </div>
+      <ol class="board" id="board" aria-label="工作步骤">
+        <li data-step="detect">
+          <span class="n">1</span>
+          <div>
+            <strong>识别</strong>
+            <small>判断来源与类型</small>
+          </div>
+        </li>
+        <li data-step="parse">
+          <span class="n">2</span>
+          <div>
+            <strong>解析</strong>
+            <small>生成可下载预览</small>
+          </div>
+        </li>
+        <li data-step="confirm">
+          <span class="n">3</span>
+          <div>
+            <strong>确认</strong>
+            <small>勾选要保存的内容</small>
+          </div>
+        </li>
+        <li data-step="download">
+          <span class="n">4</span>
+          <div>
+            <strong>下载</strong>
+            <small>进度与日志</small>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <main>
+      <section id="panel-log" class="panel hidden">
+        <header>
+          <div>
+            <h2 id="log-title">解析</h2>
+            <p class="panel-sub" id="log-status">进行中</p>
+          </div>
+          <button type="button" id="btn-toggle-log" class="ghost compact" aria-expanded="false">引擎日志</button>
+        </header>
+        <pre id="log" class="log hidden"></pre>
+      </section>
+
+      <section id="panel-confirm" class="panel gallery hidden">
+        <header class="confirm-head">
+          <div class="head-visual" id="head-visual" hidden></div>
+          <div class="head-meta">
+            <img id="head-cover" alt="" hidden>
+            <div>
+              <span class="kicker" id="head-kicker">In focus</span>
+              <h2 id="head-title">待确认</h2>
+              <p id="head-sub"></p>
+            </div>
+          </div>
+          <div class="confirm-tools">
+            <label class="check"><input type="checkbox" id="sel-all" checked> 全选</label>
+            <span id="sel-count"></span>
+            <label class="filter">
+              <span class="sr-only">筛选标题</span>
+              <input id="card-filter" type="search" placeholder="筛选标题">
+            </label>
+            <div class="view-toggle" role="group" aria-label="列表视图">
+              <button type="button" id="view-grid" class="active" aria-pressed="true">卡片</button>
+              <button type="button" id="view-list" aria-pressed="false">列表</button>
+            </div>
+            <div id="opt-quality" class="opts hidden">
+              <span>分辨率</span>
+              <label><input type="radio" name="quality" value="1080p" checked> 1080p</label>
+              <label><input type="radio" name="quality" value="2k"> 2K</label>
+              <label><input type="radio" name="quality" value="4k"> 4K</label>
+            </div>
+            <label id="opt-subs" class="check hidden"><input type="checkbox" id="subs"> 字幕</label>
+            <button type="button" id="btn-download" class="primary">确认下载</button>
+          </div>
+        </header>
+        <div id="cards" class="cards"></div>
+      </section>
+
+      <section id="panel-progress" class="panel dock hidden">
+        <header>
+          <div>
+            <h2>保存进度</h2>
+            <ol class="phases" id="phases" aria-label="下载阶段">
+              <li data-phase="queued">排队</li>
+              <li data-phase="download">下载</li>
+              <li data-phase="decrypt">解密</li>
+              <li data-phase="remux">封装</li>
+              <li data-phase="done">完成</li>
+            </ol>
+          </div>
+          <button type="button" id="btn-cancel" class="ghost danger">取消</button>
+        </header>
+        <div class="meter">
+          <div id="bar" class="bar"><i id="bar-fill"></i></div>
+          <div class="meter-meta">
+            <strong id="pct">0%</strong>
+            <span id="prog-label">等待</span>
+            <span id="prog-extra"></span>
+          </div>
+        </div>
+        <button type="button" id="btn-toggle-dlog" class="ghost compact" aria-expanded="false">引擎日志</button>
+        <pre id="dlog" class="log hidden"></pre>
+      </section>
+    </main>
+  </div>
+
+  <footer class="colophon">
+    <p>请只下载你有权保存的内容。成品按来源放在本地馆藏目录。</p>
+  </footer>
+
+  <div id="toast" class="toast" hidden role="status"></div>
+
+  <dialog id="library-dlg" class="drawer" aria-labelledby="lib-title">
+    <form method="dialog" id="library-form">
+      <header>
+        <div>
+          <h2 id="lib-title">本地馆藏</h2>
+          <p class="dlg-sub" id="lib-path"></p>
+        </div>
+        <button value="cancel" type="submit" class="icon-btn" aria-label="关闭">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </header>
+      <div id="lib-body" class="lib-body"></div>
+      <menu>
+        <button value="cancel" type="submit">关闭</button>
+        <button type="button" id="btn-open-folder" class="primary">打开文件夹</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="settings" class="drawer" aria-labelledby="set-title">
+    <form method="dialog" id="settings-form">
+      <header>
+        <div>
+          <h2 id="set-title">设置</h2>
+          <p class="dlg-sub">馆藏目录与解析参数，仅作用于这台电脑。</p>
+        </div>
+        <button value="cancel" type="submit" class="icon-btn" aria-label="关闭">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </header>
+
+      <section class="set-block">
+        <h3>依赖检查</h3>
+        <ul id="set-health-list" class="health-list"></ul>
+        <p id="set-health" class="hint sr-only"></p>
+      </section>
+
+      <section class="set-block">
+        <h3>保存位置</h3>
+        <label>馆藏目录
+          <input id="set-library" type="text">
+        </label>
+      </section>
+
+      <section class="set-block">
+        <h3>解析与下载</h3>
+        <label>列表解析条数
+          <input id="set-limit" type="number" min="1" max="500" value="40">
+          <small>频道、主页、热门列表一次最多展开多少条。</small>
+        </label>
+        <label>并行分片 / 连接数
+          <input id="set-workers" type="number" min="1" max="256" value="64">
+          <small>Jable 分片与抖音并行下载用。网络不稳时可调低。</small>
+        </label>
+      </section>
+
+      <section class="set-block">
+        <h3>抖音登录</h3>
+        <ol class="steps">
+          <li>用 Chrome 登录 <a href="https://www.douyin.com/?recommend=1" target="_blank" rel="noreferrer">douyin.com</a></li>
+          <li>用 Get cookies.txt LOCALLY 导出 Netscape 格式</li>
+          <li>把全文粘贴到下方并保存，文件会写入本目录 python/cookie.txt</li>
+        </ol>
+        <label>Cookie
+          <textarea id="set-cookie" rows="5" placeholder="sessionid=... 或 Netscape cookies.txt"></textarea>
+        </label>
+      </section>
+
+      <menu>
+        <button value="cancel" type="submit">关闭</button>
+        <button id="btn-save-settings" value="default" class="primary">保存</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script src="/static/app.js?v=3"></script>
+</body>
+</html>
