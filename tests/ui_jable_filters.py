@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
-from pathlib import Path
-
 from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parents[1] / "library"
-ROOT.mkdir(parents=True, exist_ok=True)
-BASE = "http://127.0.0.1:8765"
+from ui_support import BASE, shot
 
 
 def wait_cards(page, min_n=4, timeout=45000):
@@ -36,7 +32,7 @@ def main() -> None:
         hot_codes = first_codes(page)
         page.locator("#jb-filter-right .av-dd-btn").click()
         page.wait_for_timeout(200)
-        page.screenshot(path=str(ROOT / "_ui_jable_dd_hot.png"), full_page=False)
+        shot(page, "_ui_jable_dd_hot.png")
 
         page.locator('#jb-filter-right [data-sort="week"]').click()
         page.wait_for_function("location.hash.includes('/jable/week')")
@@ -55,7 +51,7 @@ def main() -> None:
         latest_codes = first_codes(page)
         page.locator('#jb-filter-left [data-dd="year"] .av-dd-btn').click()
         page.wait_for_timeout(200)
-        page.screenshot(path=str(ROOT / "_ui_jable_dd_year.png"), full_page=False)
+        shot(page, "_ui_jable_dd_year.png")
 
         page.locator('#jb-filter-left [data-year="2025"]').click()
         page.wait_for_function("location.hash.includes('/jable/latest/2025')")
@@ -72,16 +68,19 @@ def main() -> None:
         wait_cards(page)
         type_codes = first_codes(page)
         page.locator('#jb-filter-left [data-dd="tag"] .av-dd-btn').click()
+        page.locator(".av-cascade").wait_for(state="visible")
         page.wait_for_timeout(200)
-        page.screenshot(path=str(ROOT / "_ui_jable_dd_tag.png"), full_page=False)
+        shot(page, "_ui_jable_dd_tag.png")
 
-        page.locator('#jb-filter-left [data-tag="black-pantyhose"]').click()
+        page.locator('[data-cascade="1"] [data-group="衣著"]').click()
+        page.locator('[data-cascade="2"] [data-tag="black-pantyhose"]').wait_for(state="visible")
+        page.locator('[data-cascade="2"] [data-tag="black-pantyhose"]').click()
         page.wait_for_function("location.hash.includes('/jable/tag/')")
         page.wait_for_function("document.getElementById('jb-list-title')?.textContent === '黑絲'")
         wait_cards(page, timeout=60000)
         page.wait_for_timeout(400)
         tag_codes = first_codes(page)
-        page.screenshot(path=str(ROOT / "_ui_jable_list_tag.png"), full_page=True)
+        shot(page, "_ui_jable_list_tag.png", full_page=True)
 
         browser.close()
 

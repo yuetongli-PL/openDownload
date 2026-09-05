@@ -1,21 +1,30 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
 from collections import deque
+from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from . import paths
 from .cleanup import tidy_command
 from .engine import build_commands, preview as run_preview, public_preview
 from .paths import PY_ROOT, find_ffmpeg
 from .progress import ProgressParser
 
 LogFn = Callable[[str], None]
+
+_HISTORY_LOCK = threading.Lock()
+_HISTORY_MAX = 200
+_MEM_MAX = 300
+_TERMINAL = {"done", "error", "cancelled"}
 
 
 def _kill_tree(pid: int) -> None:
@@ -34,6 +43,112 @@ def _kill_tree(pid: int) -> None:
         pass
 
 
+def _history_path() -> Path:
+    return paths.library_dir() / "_tasks.json"
+
+
+def _read_history_unlocked() -> list[dict[str, Any]]:
+    path = _history_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return [row for row in data if isinstance(row, dict)]
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return []
+
+
+def _write_history_unlocked(items: list[dict[str, Any]]) -> None:
+    root = paths.library_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "_tasks.json"
+    payload = json.dumps(items, ensure_ascii=False, indent=2)
+    fd, tmp = tempfile.mkstemp(prefix="_tasks.", suffix=".tmp", dir=str(root))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(payload)
+            fh.flush()
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def read_history() -> list[dict[str, Any]]:
+    with _HISTORY_LOCK:
+        return _read_history_unlocked()
+
+
+def persist_download_task(task: Task) -> None:
+    if task.kind != "download" or getattr(task, "_persisted", False):
+        return
+    if task.status not in _TERMINAL:
+        return
+    task._persisted = True
+    rec = history_record(task)
+    with _HISTORY_LOCK:
+        items = [row for row in _read_history_unlocked() if str(row.get("id") or "") != rec["id"]]
+        items.append(rec)
+        if len(items) > _HISTORY_MAX:
+            items = items[-_HISTORY_MAX:]
+        _write_history_unlocked(items)
+
+
+def remove_history(task_id: str) -> bool:
+    with _HISTORY_LOCK:
+        items = _read_history_unlocked()
+        kept = [row for row in items if str(row.get("id") or "") != task_id]
+        if len(kept) == len(items):
+            return False
+        _write_history_unlocked(kept)
+        return True
+
+
+def history_record(task: Task) -> dict[str, Any]:
+    snap = task.snapshot()
+    result = snap.get("result")
+    if isinstance(result, dict) and "cwd" in result:
+        result = {"cwd": result.get("cwd") or ""}
+    return {
+        "id": snap["id"],
+        "kind": snap["kind"],
+        "title": snap.get("title") or "",
+        "site": snap.get("site") or "",
+        "status": snap["status"],
+        "count": snap.get("count") or 0,
+        "created": snap["created"],
+        "finished": snap.get("finished"),
+        "error": snap.get("error") or "",
+        "result": result,
+        "percent": snap.get("percent"),
+        "phase": snap.get("phase") or "",
+    }
+
+
+def history_item(rec: dict[str, Any]) -> dict[str, Any]:
+    percent = rec.get("percent")
+    if percent is None:
+        percent = 100
+    return {
+        "id": rec.get("id") or "",
+        "kind": rec.get("kind") or "download",
+        "title": rec.get("title") or "",
+        "site": rec.get("site") or "",
+        "status": rec.get("status") or "",
+        "count": rec.get("count") or 0,
+        "created": rec.get("created"),
+        "finished": rec.get("finished"),
+        "error": rec.get("error") or "",
+        "result": rec.get("result"),
+        "percent": percent,
+        "phase": rec.get("phase") or "",
+        "live": False,
+    }
+
+
 class Task:
     def __init__(self, kind: str, payload: dict[str, Any]) -> None:
         self.id = uuid.uuid4().hex[:12]
@@ -46,12 +161,57 @@ class Task:
         self.error = ""
         self.created = time.time()
         self.updated = self.created
+        self.finished: float | None = None
         self.events: deque[dict[str, Any]] = deque(maxlen=800)
         self.preview: dict[str, Any] | None = None
         self.result: dict[str, Any] | None = None
         self.proc: subprocess.Popen[str] | None = None
         self._cv = threading.Condition()
         self._seq = 0
+        self._persisted = False
+
+    def _preview_blob(self) -> dict[str, Any] | None:
+        if isinstance(self.preview, dict):
+            return self.preview
+        raw = (self.payload or {}).get("preview")
+        return raw if isinstance(raw, dict) else None
+
+    def _title(self) -> str:
+        p = self.payload or {}
+        if self.kind == "parse":
+            preview = self.preview if isinstance(self.preview, dict) else None
+            if preview and preview.get("title"):
+                return str(preview.get("title") or "")
+            return str(p.get("query") or "")[:80]
+        code = str(p.get("jable_code") or "").strip()
+        if code:
+            return code.upper()
+        preview = self._preview_blob()
+        if preview and preview.get("title"):
+            return str(preview.get("title") or "")
+        return ""
+
+    def _site(self) -> str:
+        p = self.payload or {}
+        if self.kind == "parse":
+            return str(p.get("site") or "")
+        preview = self._preview_blob()
+        if preview and preview.get("site"):
+            return str(preview.get("site") or "")
+        return "jable"
+
+    def _count(self) -> int:
+        p = self.payload or {}
+        if self.kind == "download":
+            ids = p.get("ids") or []
+            return len(ids) if isinstance(ids, list) else 0
+        preview = self.preview if isinstance(self.preview, dict) else None
+        items = (preview or {}).get("items") if preview else None
+        return len(items) if isinstance(items, list) else 0
+
+    def _mark_finished(self) -> None:
+        if self.finished is None:
+            self.finished = time.time()
 
     def emit(self, event: str, **fields: Any) -> None:
         self._seq += 1
@@ -63,6 +223,16 @@ class Task:
         if "label" in fields:
             self.label = str(fields["label"])
         self.updated = rec["ts"]
+        if event == "done":
+            status = str(fields.get("status") or self.status)
+            if status in _TERMINAL and self.status not in _TERMINAL:
+                self.status = status
+            if self.status in _TERMINAL:
+                self._mark_finished()
+                persist_download_task(self)
+        elif event == "error" and self.status in {"error", "cancelled"}:
+            self._mark_finished()
+            persist_download_task(self)
         with self._cv:
             self.events.append(rec)
             self._cv.notify_all()
@@ -78,6 +248,11 @@ class Task:
             "error": self.error,
             "created": self.created,
             "updated": self.updated,
+            "title": self._title(),
+            "site": self._site(),
+            "count": self._count(),
+            "finished": self.finished,
+            "live": True,
         }
         if self.preview is not None:
             out["preview"] = public_preview(self.preview)
@@ -106,6 +281,8 @@ class Task:
             return
         self.status = "cancelled"
         self.error = "已取消"
+        self._mark_finished()
+        persist_download_task(self)
         if self.proc and self.proc.poll() is None:
             _kill_tree(self.proc.pid)
         self.emit("error", message="已取消", percent=self.percent, phase="cancelled")
@@ -116,9 +293,15 @@ class JobRunner:
     def __init__(self) -> None:
         self.tasks: dict[str, Task] = {}
         self._lock = threading.Lock()
-        self._queue: deque[Task] = deque()
-        self._worker = threading.Thread(target=self._loop, name="od-worker", daemon=True)
-        self._worker.start()
+        self._parse_queue: deque[Task] = deque()
+        self._download_queue: deque[Task] = deque()
+        self._parse_worker = threading.Thread(target=self._loop, args=("parse",), name="od-parse", daemon=True)
+        self._download_worker = threading.Thread(
+            target=self._loop, args=("download",), name="od-download", daemon=True
+        )
+        self._parse_worker.start()
+        self._download_worker.start()
+        read_history()
 
     def submit_parse(
         self,
@@ -188,16 +371,63 @@ class JobRunner:
         with self._lock:
             return self.tasks.get(task_id)
 
+    def list_items(self, limit: int = 50) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit or 50), 200))
+        with self._lock:
+            live = [task.snapshot() for task in self.tasks.values()]
+        seen = {str(item.get("id") or "") for item in live}
+        items = list(live)
+        for rec in read_history():
+            rid = str(rec.get("id") or "")
+            if not rid or rid in seen:
+                continue
+            items.append(history_item(rec))
+            seen.add(rid)
+        items.sort(key=lambda item: float(item.get("created") or 0), reverse=True)
+        return items[:limit]
+
+    def delete_task(self, task_id: str) -> str:
+        with self._lock:
+            task = self.tasks.get(task_id)
+            if task is not None and task.status in {"queued", "running"}:
+                return "busy"
+            existed_live = task is not None
+            if existed_live:
+                self.tasks.pop(task_id, None)
+                for queue in (self._parse_queue, self._download_queue):
+                    try:
+                        queue.remove(task)  # type: ignore[arg-type]
+                    except ValueError:
+                        pass
+        existed_hist = remove_history(task_id)
+        if not existed_live and not existed_hist:
+            return "missing"
+        return "ok"
+
     def _enqueue(self, task: Task) -> Task:
         with self._lock:
             self.tasks[task.id] = task
-            self._queue.append(task)
+            if task.kind == "parse":
+                self._parse_queue.append(task)
+            else:
+                self._download_queue.append(task)
+            self._prune_locked()
         return task
 
-    def _loop(self) -> None:
+    def _prune_locked(self) -> None:
+        extra = len(self.tasks) - _MEM_MAX
+        if extra <= 0:
+            return
+        inactive = [task for task in self.tasks.values() if task.status not in {"queued", "running"}]
+        inactive.sort(key=lambda task: task.created)
+        for task in inactive[:extra]:
+            self.tasks.pop(task.id, None)
+
+    def _loop(self, kind: str) -> None:
         while True:
             with self._lock:
-                task = self._queue.popleft() if self._queue else None
+                queue = self._parse_queue if kind == "parse" else self._download_queue
+                task = queue.popleft() if queue else None
             if task is None:
                 time.sleep(0.05)
                 continue

@@ -906,6 +906,8 @@ def build_commands(
 
 
 def health() -> dict[str, Any]:
+    from . import __version__
+
     ffmpeg = find_ffmpeg()
     cookies = cookie_path()
     yt_dlp_ver = ""
@@ -921,6 +923,7 @@ def health() -> dict[str, Any]:
         playwright_ok = True
     except Exception:
         playwright_ok = False
+    settings = load_settings()
     return {
         "python": sys.executable,
         "ffmpeg": str(ffmpeg) if ffmpeg else "",
@@ -928,5 +931,7 @@ def health() -> dict[str, Any]:
         "playwright": playwright_ok,
         "cookie": cookies.is_file() and cookies.stat().st_size > 20,
         "library": str(library_dir()),
-        "settings": load_settings(),
+        "settings": settings,
+        "version": __version__,
+        "port": int(settings.get("port") or 8765),
     }

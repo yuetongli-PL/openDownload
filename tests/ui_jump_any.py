@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
-from pathlib import Path
-
 from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parents[1] / "library"
-ROOT.mkdir(parents=True, exist_ok=True)
-BASE = "http://127.0.0.1:8765"
+from ui_support import BASE, shot
+
 PAGE_SIZE = 12
 BUDGET_MS = 300
 
@@ -19,7 +16,7 @@ JUMP_JS = """(n) => {
 }"""
 
 READY_JS = """({n, want}) => {
-  const on = document.querySelector('#jb-pager button.on');
+  const on = document.querySelector('#jb-pager button.on, #jb-pager button[aria-current="page"]');
   const cards = document.querySelectorAll('#jb-list-grid .av-card');
   return on && on.textContent.trim() === String(n) && cards.length === want;
 }"""
@@ -101,7 +98,7 @@ def log_jump(hash_path, info):
 
 
 def open_snap_list(page, hash_path):
-    page.goto(BASE + hash_path, wait_until="domcontentloaded")
+    page.goto(BASE + "/" + hash_path, wait_until="domcontentloaded")
     page.locator("#jable-list").wait_for(state="visible", timeout=15000)
     page.locator("#jb-list-grid .av-card").first.wait_for(timeout=15000)
     page.wait_for_function(
@@ -116,7 +113,7 @@ def open_snap_list(page, hash_path):
     return last, total
 
 
-def check_snap(page, hash_path, targets, shot):
+def check_snap(page, hash_path, targets, shot_name):
     last, total = open_snap_list(page, hash_path)
     results = []
     for raw in targets:
@@ -130,12 +127,12 @@ def check_snap(page, hash_path, targets, shot):
         results.append(info)
     firsts = [r["first"] for r in results]
     assert len(set(firsts)) == len(firsts), firsts
-    page.screenshot(path=str(ROOT / shot), full_page=False)
+    shot(page, shot_name)
     return results
 
 
-def check_tag(page, hash_path, shot):
-    page.goto(BASE + hash_path, wait_until="domcontentloaded")
+def check_tag(page, hash_path, shot_name):
+    page.goto(BASE + "/" + hash_path, wait_until="domcontentloaded")
     page.locator("#jable-list").wait_for(state="visible", timeout=15000)
     page.wait_for_function(
         """() => {
@@ -151,14 +148,13 @@ def check_tag(page, hash_path, shot):
     print(hash_path, "title", title, "count", count_text, "pages", pager_pages(page))
     info = jump_tag(page, 2, want=PAGE_SIZE)
     log_jump(hash_path, info)
-    # page 2 of black-pantyhose is usually cached (24 local codes = 2 UI pages)
     assert info["count"] == PAGE_SIZE, info
     assert info["first"], info
     if info.get("loading"):
         print(hash_path, "page 2 used network", info.get("ms"), "ms")
     assert (info.get("ms") or 0) < BUDGET_MS, info
     assert not info.get("loading"), info
-    page.screenshot(path=str(ROOT / shot), full_page=False)
+    shot(page, shot_name)
     return info
 
 

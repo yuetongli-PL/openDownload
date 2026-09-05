@@ -20,3 +20,6 @@ python/cookie.txt
 
 .DS_Store
 Thumbs.db
+
+.pytest_cache/
+tests/_out/

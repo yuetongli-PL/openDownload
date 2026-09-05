@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
-from pathlib import Path
-
 from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parents[1] / "library"
-ROOT.mkdir(parents=True, exist_ok=True)
-BASE = "http://127.0.0.1:8765"
+from ui_support import BASE, shot
 
 
 def main() -> None:
@@ -25,7 +21,7 @@ def main() -> None:
         assert page.locator("#jb-list-grid .av-card").count() == 12
         title = page.locator("#jb-inspect-title").inner_text().strip()
         assert title
-        page.screenshot(path=str(ROOT / "_ui_jable_inspect_list.png"), full_page=True)
+        shot(page, "_ui_jable_inspect_list.png", full_page=True)
         page.keyboard.press("Escape")
         page.wait_for_function("!document.body.classList.contains('jb-inspect-open')")
         after = page.locator("#jb-list-grid .av-card").count()

@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
-from pathlib import Path
-
 from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parents[1] / "library"
-ROOT.mkdir(parents=True, exist_ok=True)
-BASE = "http://127.0.0.1:8765"
+from ui_support import BASE, shot
 
 JUMP_JS = """(n) => {
   const input = document.querySelector('#jb-pager .av-pager-input');
@@ -18,7 +14,7 @@ JUMP_JS = """(n) => {
 
 WAIT_JS = """(n) => {
   const pager = document.querySelector('#jb-pager');
-  const on = pager && pager.querySelector('button.on');
+  const on = pager && pager.querySelector('button.on, button[aria-current="page"]');
   const cards = document.querySelectorAll('#jb-list-grid .av-card');
   const last = Number((pager && pager.dataset.pages) || 0);
   const enough = cards.length >= 12 || (last > 0 && Number(n) === last);
@@ -39,9 +35,9 @@ def jump(page, n):
     return {"n": n, "count": count, "first": first, "codes": codes, "pages": pages, "ms": ms}
 
 
-def check(page, hash_path, shot, sizes):
+def check(page, hash_path, shot_name, sizes):
     page.set_viewport_size(sizes)
-    page.goto(BASE + hash_path, wait_until="domcontentloaded")
+    page.goto(BASE + "/" + hash_path, wait_until="domcontentloaded")
     page.locator("#jable-list").wait_for(state="visible", timeout=15000)
     page.locator("#jb-list-grid .av-card").first.wait_for(timeout=15000)
     page.wait_for_function(
@@ -80,7 +76,7 @@ def check(page, hash_path, shot, sizes):
             assert (info.get("ms") or 0) < 300, info
     firsts = [r["first"] for r in results]
     assert len(set(firsts)) == len(firsts), firsts
-    page.screenshot(path=str(ROOT / shot), full_page=False)
+    shot(page, shot_name)
     return results
 
 

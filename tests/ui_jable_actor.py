@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 import re
-from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parents[1] / "library"
-ROOT.mkdir(parents=True, exist_ok=True)
-BASE = "http://127.0.0.1:8765"
+from ui_support import BASE, shot
+
 SLUG = "e82b22cd3275fd0e569147d82fa1999d"
 NAME = "彩月七緒"
 
@@ -40,7 +38,7 @@ def main() -> None:
         viewed_label = page.locator("#jb-filter-right .av-dd-btn").first.inner_text()
         assert "最多观看" in viewed_label
         cards = page.locator("#jb-list-grid .av-card").count()
-        page.screenshot(path=str(ROOT / "_ui_jable_actor.png"), full_page=False)
+        shot(page, "_ui_jable_actor.png")
         print("title", title, "cards", cards, "hash", page.evaluate("location.hash"), "sort", viewed_label)
         browser.close()
     print("jable actor jump ok")

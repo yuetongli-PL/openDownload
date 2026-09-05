@@ -1,1 +1,2 @@
 # openDownload local web app
+__version__ = "2.0.0"

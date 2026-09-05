@@ -1,0 +1,73 @@
+.view-settings {
+  display: grid;
+  gap: var(--sp-7);
+  max-width: 720px;
+  justify-items: start;
+}
+
+.view-settings > * {
+  width: 100%;
+}
+
+.view-settings > .btn {
+  width: auto;
+}
+
+.set-block {
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.set-block h2 {
+  font-size: var(--fs-20);
+}
+
+.health-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.health-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--sp-4);
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+}
+
+.health-list li > span:first-child {
+  min-width: 0;
+}
+
+.health-list .status-dot {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.health-list small {
+  display: block;
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+.set-steps {
+  padding-left: 1.2em;
+  color: var(--ink-2);
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.set-row {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: end;
+}
+
+.set-row .field {
+  flex: 1;
+}

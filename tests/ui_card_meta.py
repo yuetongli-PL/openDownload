@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
-from pathlib import Path
-
 from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parents[1] / "library"
-ROOT.mkdir(parents=True, exist_ok=True)
-BASE = "http://127.0.0.1:8765"
+from ui_support import BASE, shot
 
 
 def main() -> None:
@@ -27,7 +23,7 @@ def main() -> None:
         actors = page.locator("#jb-list-grid .av-card-actors").count()
         views = page.locator("#jb-list-grid .av-card-views").count()
         page.locator("#jb-list-grid .av-card").first.scroll_into_view_if_needed()
-        page.screenshot(path=str(ROOT / "_ui_card_meta.png"), full_page=False)
+        shot(page, "_ui_card_meta.png")
         print("views", views, "dates", dates, "actors", actors)
         assert views >= 1
         browser.close()

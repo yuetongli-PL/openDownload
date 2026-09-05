@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import sys
 import time
-from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parents[1] / "library"
-ROOT.mkdir(parents=True, exist_ok=True)
-BASE = "http://127.0.0.1:8765"
+from ui_support import BASE, shot
 
 PLAYLIST = """#EXTM3U
 #EXT-X-VERSION:3
@@ -72,7 +69,7 @@ def main() -> None:
         ms = (time.perf_counter() - t0) * 1000
         print("inspect full attach", f"{ms:.0f}ms")
         assert ms < 500, f"inspect full attach {ms:.0f}ms >= 500ms"
-        page.screenshot(path=str(ROOT / "_ui_jable_play_hit.png"))
+        shot(page, "_ui_jable_play_hit.png")
         browser.close()
     print("jable play hit ok")
 

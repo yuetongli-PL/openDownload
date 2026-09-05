@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
-from pathlib import Path
-
 from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parents[1] / "library"
-ROOT.mkdir(parents=True, exist_ok=True)
-BASE = "http://127.0.0.1:8765"
+from ui_support import BASE, shot
 
 
 def main() -> None:
@@ -25,9 +21,10 @@ def main() -> None:
         assert box and c1 and c2
         assert abs(c1["y"] - c2["y"]) < 8, "columns should be on one row"
         assert c2["x"] > c1["x"] + 80, "level2 should sit to the right of level1"
+        page.locator('[data-cascade="1"] [data-group="衣著"]').wait_for(state="visible", timeout=30000)
         page.locator('[data-cascade="1"] [data-group="衣著"]').click()
         page.locator('[data-cascade="2"] [data-tag="black-pantyhose"]').wait_for(state="visible")
-        page.screenshot(path=str(ROOT / "_ui_jable_dd_cascade.png"), full_page=False)
+        shot(page, "_ui_jable_dd_cascade.png")
         page.locator('[data-cascade="2"] [data-tag="black-pantyhose"]').click()
         page.wait_for_function("location.hash.includes('/jable/tag/')")
         page.wait_for_function("document.getElementById('jb-list-title')?.textContent === '黑絲'")

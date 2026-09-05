@@ -1,13 +1,10 @@
 # -*- coding: utf-8 -*-
-from pathlib import Path
 import sys
 import time
 
 from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parents[1] / "library"
-ROOT.mkdir(parents=True, exist_ok=True)
-BASE = "http://127.0.0.1:8765"
+from ui_support import BASE, shot
 
 
 def wait_cards(page, min_n=4, timeout=15000):
@@ -73,7 +70,7 @@ def main() -> None:
         tag_ms = time_cards(page, t0, hash_part="/jable/tag/", timeout_ms=1500)
         print("tag 黑絲", f"{tag_ms:.0f}ms")
         assert tag_ms < 1500, f"tag cards {tag_ms:.0f}ms >= 1500ms"
-        page.screenshot(path=str(ROOT / "_ui_jable_fast.png"), full_page=True)
+        shot(page, "_ui_jable_fast.png", full_page=True)
         browser.close()
 
     print("jable ui latency ok")

@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
-from pathlib import Path
-
 from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parents[1] / "library"
-ROOT.mkdir(parents=True, exist_ok=True)
-BASE = "http://127.0.0.1:8765"
+from ui_support import BASE, shot
 
 JUMP_JS = """(n) => {
   const input = document.querySelector('#jb-pager .av-pager-input');
@@ -15,13 +11,15 @@ JUMP_JS = """(n) => {
   input.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true}));
 }"""
 
+ON_BTN = '#jb-pager .av-pager-pages button.on, #jb-pager .av-pager-pages button[aria-current="page"]'
+
 
 def pager_state(page):
     return page.evaluate(
         """() => {
           const host = document.querySelector('#jb-pager');
           const nums = [...host.querySelectorAll('.av-pager-pages button')].map((b) => b.textContent.trim());
-          const on = host.querySelector('.av-pager-pages button.on')?.textContent.trim();
+          const on = host.querySelector('.av-pager-pages button.on, .av-pager-pages button[aria-current="page"]')?.textContent.trim();
           const first = host.querySelector('.av-pager-first');
           const prev = host.querySelector('.av-pager-prev');
           const next = host.querySelector('.av-pager-next');
@@ -44,8 +42,8 @@ def pager_state(page):
     )
 
 
-def check(page, hash_path, shot):
-    page.goto(BASE + hash_path, wait_until="domcontentloaded")
+def check(page, hash_path, shot_name):
+    page.goto(BASE + "/" + hash_path, wait_until="domcontentloaded")
     page.locator("#jable-list").wait_for(state="visible", timeout=15000)
     page.wait_for_function(
         "Number(document.querySelector('#jb-pager')?.dataset.pages||0) > 10",
@@ -70,20 +68,20 @@ def check(page, hash_path, shot):
 
     home = pager_state(page)
     print(hash_path, "home", home)
-    assert home["first"] == "<<"
-    assert home["prev"] == "<"
-    assert home["next"] == ">"
-    assert home["last"] == ">>"
+    assert home["first"] == "首"
+    assert home["prev"] == "上"
+    assert home["next"] == "下"
+    assert home["last"] == "末"
     assert home["nums"] == ["1", "2", "3", "4", "5"]
     assert home["on"] == "1"
     assert home["onIndex"] == 0
     assert home["firstOff"] and home["prevOff"]
     assert not home["nextOff"] and not home["lastOff"]
-    page.screenshot(path=str(ROOT / shot), full_page=False)
+    shot(page, shot_name, full_page=False)
 
     page.evaluate(JUMP_JS, 50)
     page.wait_for_function(
-        "document.querySelector('#jb-pager .av-pager-pages button.on')?.textContent.trim() === '50'",
+        f"""() => document.querySelector({ON_BTN!r})?.textContent.trim() === '50'""",
         timeout=10000,
     )
     mid = pager_state(page)
@@ -94,7 +92,7 @@ def check(page, hash_path, shot):
 
     page.evaluate(JUMP_JS, maxp)
     page.wait_for_function(
-        f"document.querySelector('#jb-pager .av-pager-pages button.on')?.textContent.trim() === '{maxp}'",
+        f"""() => document.querySelector({ON_BTN!r})?.textContent.trim() === '{maxp}'""",
         timeout=10000,
     )
     end = pager_state(page)
@@ -146,4 +144,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

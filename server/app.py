@@ -43,7 +43,9 @@ from .jable_lists import play_cached as jable_play_cached
 from .jable_lists import play_info as jable_play_info
 from .jable_page import page_feed
 from .jobs import RUNNER
-from .paths import WEB_ROOT, cookie_path, library_dir, load_settings, save_settings
+from .library import library_scan as _library_scan
+from .library import router as library_router
+from .paths import WEB_ROOT, cookie_path, load_settings, save_settings
 
 
 def _kick_warmup() -> None:
@@ -89,6 +91,7 @@ class SkipMediaGZipMiddleware(GZipMiddleware):
         "/api/jable/hls",
         "/api/dmm/preview",
         "/api/tasks/",
+        "/api/library/file",
     )
 
     async def __call__(self, scope, receive, send):
@@ -101,6 +104,18 @@ class SkipMediaGZipMiddleware(GZipMiddleware):
 
 
 app.add_middleware(SkipMediaGZipMiddleware, minimum_size=1000)
+app.include_router(library_router)
+
+
+class NoCacheStaticFiles(StaticFiles):
+    _NO_CACHE = {".html", ".css", ".js", ".mjs", ".svg", ".json", ".map"}
+
+    def file_response(self, full_path, stat_result, scope, status_code: int = 200):
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        ext = Path(os.fspath(full_path)).suffix.lower()
+        if ext in self._NO_CACHE:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 class JableBrowseIn(BaseModel):
@@ -1186,12 +1201,27 @@ def api_jable_save(body: JableSaveIn) -> dict[str, Any]:
     return task.snapshot()
 
 
+@app.get("/api/tasks")
+def api_tasks(limit: int = 50) -> dict[str, Any]:
+    return {"items": RUNNER.list_items(limit)}
+
+
 @app.get("/api/tasks/{task_id}")
 def api_task(task_id: str) -> dict[str, Any]:
     task = RUNNER.get(task_id)
     if not task:
         raise HTTPException(404, "任务不存在")
     return task.snapshot()
+
+
+@app.delete("/api/tasks/{task_id}")
+def api_task_delete(task_id: str) -> dict[str, Any]:
+    result = RUNNER.delete_task(task_id)
+    if result == "busy":
+        raise HTTPException(409, "任务进行中，无法删除")
+    if result == "missing":
+        raise HTTPException(404, "任务不存在")
+    return {"ok": True}
 
 
 @app.post("/api/tasks/{task_id}/cancel")
@@ -1321,59 +1351,6 @@ def api_proxy(url: str) -> Response:
     return Response(content=data, media_type=ctype, headers={"Cache-Control": "public, max-age=86400"})
 
 
-MEDIA_EXT = {".mp4", ".mkv", ".webm", ".mov", ".m4a", ".mp3"}
-
-
-def _library_scan(root: Path, *, limit: int = 24) -> dict[str, Any]:
-    sites: list[dict[str, Any]] = []
-    scanned = 0
-    for name in ("jable", "youtube", "douyin"):
-        folder = root / name
-        files: list[dict[str, Any]] = []
-        total = 0
-        if folder.is_dir():
-            found: list[Path] = []
-            for path in folder.rglob("*"):
-                scanned += 1
-                if scanned > 800:
-                    break
-                if not path.is_file() or path.suffix.lower() not in MEDIA_EXT:
-                    continue
-                total += 1
-                found.append(path)
-            found.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-            for path in found[:limit]:
-                stat = path.stat()
-                files.append(
-                    {
-                        "name": path.name,
-                        "rel": str(path.relative_to(root)),
-                        "size": stat.st_size,
-                        "mtime": stat.st_mtime,
-                    }
-                )
-        sites.append({"site": name, "count": total, "recent": files})
-    return {"path": str(root), "sites": sites}
-
-
-@app.get("/api/library")
-def api_library() -> dict[str, Any]:
-    root = library_dir()
-    root.mkdir(parents=True, exist_ok=True)
-    return _library_scan(root)
-
-
-@app.post("/api/open-library")
-def api_open_library() -> dict[str, Any]:
-    path = library_dir()
-    path.mkdir(parents=True, exist_ok=True)
-    if os.name == "nt":
-        os.startfile(path)  # type: ignore[attr-defined]
-    else:
-        os.system(f'xdg-open "{path}"')
-    return {"ok": True, "path": str(path)}
-
-
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(
@@ -1383,4 +1360,4 @@ def index() -> FileResponse:
 
 
 if WEB_ROOT.is_dir():
-    app.mount("/static", StaticFiles(directory=str(WEB_ROOT)), name="static")
+    app.mount("/static", NoCacheStaticFiles(directory=str(WEB_ROOT)), name="static")

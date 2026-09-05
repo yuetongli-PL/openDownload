@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
-from pathlib import Path
-
+"""List grid: 12 cards; desktop auto-fill (~4 cols); inspect split uses 2 cols."""
 from playwright.sync_api import sync_playwright
 
-ROOT = Path(__file__).resolve().parents[1] / "library"
-ROOT.mkdir(parents=True, exist_ok=True)
-BASE = "http://127.0.0.1:8765"
+from ui_support import BASE, shot
 
 
 def grid_info(page, sel="#jb-list-grid"):
@@ -43,8 +40,8 @@ def main() -> None:
             info = grid_info(page)
             print(hash_path, info)
             assert info["n"] == 12, info
-            assert info["cols"] == 4, info
-            assert info["rows"] == 3, info
+            assert info["cols"] >= 3, info
+            assert info["rows"] >= 2, info
         page.locator("#jb-list-grid .av-card").first.click()
         page.wait_for_function("document.body.classList.contains('jb-inspect-open')", timeout=15000)
         page.wait_for_function(
@@ -55,11 +52,10 @@ def main() -> None:
         info = grid_info(page)
         print("inspect", info)
         assert info["n"] == 12, info
-        assert info["cols"] == 3, info
-        assert info["rows"] == 4, info
-        page.screenshot(path=str(ROOT / "_ui_grid_34.png"), full_page=False)
+        assert info["cols"] == 2, info
+        shot(page, "_ui_grid_34.png")
         browser.close()
-    print("grid 3x4 ok")
+    print("grid 12 / inspect 2-col ok")
 
 
 if __name__ == "__main__":
