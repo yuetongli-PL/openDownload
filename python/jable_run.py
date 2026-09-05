@@ -126,18 +126,37 @@ def main(argv: list[str] | None = None) -> int:
     want_mp4 = True
     want_subs = False
     embed_subs = True
-    if "--no-mp4" in extra:
-        want_mp4 = False
-        extra = [a for a in extra if a != "--no-mp4"]
-    if "--subs" in extra:
-        want_subs = True
-        extra = [a for a in extra if a != "--subs"]
-    if "--no-embed" in extra:
-        embed_subs = False
-        extra = [a for a in extra if a != "--no-embed"]
+    code_flag = ""
+    cleaned: list[str] = []
+    idx = 0
+    while idx < len(extra):
+        item = extra[idx]
+        if item == "--code" and idx + 1 < len(extra):
+            code_flag = extra[idx + 1].strip()
+            idx += 2
+            continue
+        if item.startswith("--code="):
+            code_flag = item.split("=", 1)[1].strip()
+            idx += 1
+            continue
+        if item == "--no-mp4":
+            want_mp4 = False
+            idx += 1
+            continue
+        if item == "--subs":
+            want_subs = True
+            idx += 1
+            continue
+        if item == "--no-embed":
+            embed_subs = False
+            idx += 1
+            continue
+        cleaned.append(item)
+        idx += 1
+    extra = cleaned
 
     out_root = Path.cwd()
-    code = guess_code(url)
+    code = (code_flag or guess_code(url)).strip().lower() or "video"
     work = out_root / code
     work.mkdir(parents=True, exist_ok=True)
     print(f"save dir: {work}", flush=True)

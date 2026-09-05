@@ -160,6 +160,30 @@ class JobRunner:
         )
         return self._enqueue(task)
 
+    def submit_jable_save(
+        self,
+        code: str,
+        *,
+        subs: bool = False,
+        workers: int | None = None,
+    ) -> Task:
+        raw = (code or "").strip().lower()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{1,40}", raw):
+            raise RuntimeError("番号无效")
+        task = Task(
+            "download",
+            {
+                "parse_id": "",
+                "ids": [raw],
+                "quality": "1080p",
+                "subs": bool(subs),
+                "workers": workers,
+                "preview": None,
+                "jable_code": raw,
+            },
+        )
+        return self._enqueue(task)
+
     def get(self, task_id: str) -> Task | None:
         with self._lock:
             return self.tasks.get(task_id)
@@ -223,7 +247,38 @@ class JobRunner:
 
     def _run_download(self, task: Task) -> None:
         p = task.payload
-        preview = p["preview"]
+        preview = p.get("preview")
+        code = str(p.get("jable_code") or "").strip().lower()
+        if not preview and code:
+            task.emit("progress", percent=4, phase="parse", label="获取播放地址")
+            from .jable_lists import play_cached, play_info
+
+            data = play_cached(code) or play_info(code)
+            hls = str((data or {}).get("hls") or "").strip()
+            if not hls:
+                raise RuntimeError("没有播放地址，无法下载")
+            cid = str((data or {}).get("id") or code).strip().lower() or code
+            preview = {
+                "site": "jable",
+                "kind": "video",
+                "title": (data or {}).get("title") or cid,
+                "url": (data or {}).get("url") or f"https://jable.tv/videos/{cid}/",
+                "cover": (data or {}).get("cover") or "",
+                "items": [{"id": cid, "title": (data or {}).get("title") or cid}],
+                "store": {
+                    cid: {
+                        "url": (data or {}).get("url") or "",
+                        "code": cid,
+                        "raw": data,
+                    }
+                },
+                "downloadable": True,
+            }
+            p["preview"] = preview
+            p["ids"] = [cid]
+            task.emit("progress", percent=8, phase="download", label=f"开始下载 {cid.upper()}")
+        if not preview:
+            raise RuntimeError("找不到解析结果，请重新解析")
         cmds = build_commands(
             preview,
             list(p.get("ids") or []),

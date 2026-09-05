@@ -863,9 +863,20 @@ def build_commands(
     cmds: list[dict[str, Any]] = []
     if site == "jable":
         for iid in wanted:
-            rec = store[iid]
-            target = rec.get("url") or rec.get("code") or iid
-            argv = [py, "-u", str(PY_ROOT / "jable_run.py"), str(target), "--workers", str(max(1, n_workers))]
+            rec = store.get(iid) or {}
+            raw_meta = rec.get("raw") if isinstance(rec.get("raw"), dict) else {}
+            hls = str((raw_meta or {}).get("hls") or "").strip()
+            target = hls or rec.get("url") or rec.get("code") or iid
+            argv = [
+                py,
+                "-u",
+                str(PY_ROOT / "jable_run.py"),
+                str(target),
+                "--workers",
+                str(max(1, n_workers)),
+                "--code",
+                str(iid),
+            ]
             if subs:
                 argv.append("--subs")
             cmds.append({"argv": argv, "cwd": str(lib), "label": f"Jable {iid}", "id": iid})

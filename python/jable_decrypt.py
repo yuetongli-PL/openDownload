@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -205,6 +206,16 @@ def build_curl_parallel_cmd(
         "-K",
         str(cfg),
     ]
+    try:
+        from jable_http import cookie_path
+
+        cookie = str(cookie_path())
+        cmd.extend(["-b", cookie, "-c", cookie])
+    except Exception:
+        pass
+    cmd.append("--fail")
+    if curl_has_flag(curl, "--compressed"):
+        cmd.append("--compressed")
     if curl_has_flag(curl, "--parallel-immediate"):
         cmd.append("--parallel-immediate")
     if curl_has_flag(curl, "--parallel-max-host"):
@@ -236,27 +247,48 @@ def download_curl_parallel(
         return [(u, p) for u, p in zip(urls, dests) if not enc_ok(p)]
 
     jobs = pending()
+    n_all = len(urls)
     if not jobs:
-        print("download: all segments already cached", file=sys.stderr)
+        print(f"download: {n_all}/{n_all}", file=sys.stderr, flush=True)
+        print("download: all segments already cached", file=sys.stderr, flush=True)
         return
 
+    stop = threading.Event()
+
+    def heartbeat() -> None:
+        last = -1
+        while not stop.wait(0.5):
+            done = sum(1 for p in dests if enc_ok(p))
+            if done != last:
+                print(f"download: {done}/{n_all}", file=sys.stderr, flush=True)
+                last = done
+
+    ticker = threading.Thread(target=heartbeat, daemon=True)
+    ticker.start()
     cfg = parts / "curl.cfg"
     pmax = max(1, min(parallel_max, len(jobs)))
-    for attempt in range(max(1, retries)):
-        jobs = pending()
-        if not jobs:
-            break
-        pmax = max(1, min(parallel_max, len(jobs)))
-        write_curl_config(jobs, cfg)
-        print(
-            f"download: curl --parallel {len(jobs)} files, connections={pmax}"
-            + (f" (retry {attempt})" if attempt else ""),
-            file=sys.stderr,
-        )
-        cmd = build_curl_parallel_cmd(curl, cfg, pmax, timeout, referer)
-        result = subprocess.run(cmd, check=False)
-        if result.returncode not in (0, 18, 26, 28, 56):
-            print(f"warning: curl exit {result.returncode}", file=sys.stderr)
+    try:
+        for attempt in range(max(1, retries)):
+            jobs = pending()
+            if not jobs:
+                break
+            pmax = max(1, min(parallel_max, len(jobs)))
+            write_curl_config(jobs, cfg)
+            print(
+                f"download: curl --parallel {len(jobs)} files, connections={pmax}"
+                + (f" (retry {attempt})" if attempt else ""),
+                file=sys.stderr,
+                flush=True,
+            )
+            cmd = build_curl_parallel_cmd(curl, cfg, pmax, timeout, referer)
+            result = subprocess.run(cmd, check=False)
+            if result.returncode not in (0, 18, 26, 28, 56):
+                print(f"warning: curl exit {result.returncode}", file=sys.stderr, flush=True)
+    finally:
+        stop.set()
+        ticker.join(timeout=1.5)
+        done = sum(1 for p in dests if enc_ok(p))
+        print(f"download: {done}/{n_all}", file=sys.stderr, flush=True)
 
     missing = pending()
     if missing:

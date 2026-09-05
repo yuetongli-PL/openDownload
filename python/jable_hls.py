@@ -32,7 +32,7 @@ USER_AGENT = (
 )
 
 HLS_RE = re.compile(
-    r"""var\s+hlsUrl\s*=\s*['"](https?://[^'"]+\.m3u8[^'"]*)['"]""",
+    r"""(?:var\s+)?hlsUrl\s*=\s*['"](https?://[^'"]+\.m3u8[^'"]*)['"]""",
     re.I,
 )
 POSTER_RE = re.compile(
@@ -152,16 +152,21 @@ def _fetch_with_urllib(url: str, timeout: int) -> bytes:
 
 
 def fetch_html(url: str, timeout: int = 30) -> str:
-    last = ""
-    for attempt in range(3):
-        raw = _fetch_with_curl(url, timeout) or _fetch_with_urllib(url, timeout)
-        html = raw.decode("utf-8", errors="replace")
-        last = html
-        if _looks_like_page(html):
+    try:
+        from jable_http import DEFAULT_REFERER, fetch_html as http_fetch_html
+
+        html, detail = http_fetch_html(
+            url,
+            timeout=timeout,
+            referer=DEFAULT_REFERER,
+            validate=_looks_like_page,
+            priority=True,
+        )
+        if html and _looks_like_page(html):
             return html
-        time.sleep(1.2 * (attempt + 1))
-    snippet = re.sub(r"\s+", " ", last)[:180]
-    die(f"failed to fetch page (cloudflare or network): {snippet or 'empty response'}")
+        die(f"failed to fetch page (cloudflare or network): {(detail or '')[:180] or 'empty response'}")
+    except RuntimeError as exc:
+        die(str(exc) or "failed to fetch page")
     return ""
 
 
@@ -177,7 +182,7 @@ def _first_jpg(*candidates: str | None) -> str | None:
     return None
 
 
-def parse_page(url: str, html: str) -> dict[str, Any]:
+def parse_page(url: str, html: str, require_cover: bool = True) -> dict[str, Any]:
     hls_match = HLS_RE.search(html)
     if not hls_match:
         die("hls/m3u8 not found in page")
@@ -192,7 +197,7 @@ def parse_page(url: str, html: str) -> dict[str, Any]:
     if og_match:
         og = unescape(og_match.group(1))
     cover = _first_jpg(poster, og)
-    if not cover:
+    if not cover and require_cover:
         die("cover jpg not found in page")
 
     title = None

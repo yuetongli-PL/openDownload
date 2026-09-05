@@ -37,7 +37,7 @@ class ProgressParser:
 
     def start_item(self, index: int, label: str) -> dict:
         self.item_index = max(0, index)
-        self.item_pct = 0.0
+        self.item_pct = max(self.item_pct, 8.0)
         self.phase = "download"
         self.label = label
         self.speed = ""
@@ -53,7 +53,12 @@ class ProgressParser:
         step = STEP_RE.match(text)
         if step:
             cur, total, rest = int(step.group(1)), max(1, int(step.group(2))), step.group(3).strip()
-            self.item_pct = min(95.0, (cur - 1) / total * 90 + 8)
+            if total == 4 and cur == 3:
+                self.item_pct = max(self.item_pct, 15.0)
+            elif total == 4 and cur == 4:
+                self.item_pct = max(self.item_pct, 90.0)
+            else:
+                self.item_pct = min(95.0, (cur - 1) / total * 90 + 8)
             self.label = rest or self.label
             self._hint_phase(text)
             changed = True
@@ -72,7 +77,9 @@ class ProgressParser:
         frac = FRAC_RE.search(text)
         if frac and not yt:
             done, total = int(frac.group(1)), max(1, int(frac.group(2)))
-            self.item_pct = min(95.0, done / total * 88)
+            # Jable spends most of the bar inside [3/4] download/decrypt.
+            mapped = min(95.0, 15.0 + done / total * 75.0)
+            self.item_pct = max(self.item_pct, mapped)
             self.detail = f"{done}/{total}"
             self._hint_phase(text)
             changed = True

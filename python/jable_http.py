@@ -6,8 +6,10 @@ Python urllib is JA3-fingerprinted and typically gets HTTP 403. curl.exe
 """
 from __future__ import annotations
 
+import http.client
 import os
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -15,12 +17,19 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 _RATE_LOCK = threading.Lock()
 _RATE_BLOCK_UNTIL = 0.0
+_PLAY_COOLDOWN_UNTIL = 0.0
+DENIED_PAUSE = 1800.0
+PLAY_COOLDOWN = 180.0
+CHALLENGE_PAUSE = 25.0
+_RATE_PATH = Path(tempfile.gettempdir()) / "jable-http.ratelimit"
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -142,6 +151,8 @@ def _curl_get_once(
     compressed: bool,
     fresh_cookies: bool,
     extra: list[str] | None = None,
+    priority: bool = False,
+    connect_timeout: int = 15,
 ) -> tuple[bytes, str]:
     curl = curl_bin()
     if not curl:
@@ -160,7 +171,7 @@ def _curl_get_once(
         "--max-time",
         str(max(5, int(timeout))),
         "--connect-timeout",
-        "15",
+        str(max(2, int(connect_timeout))),
         "-o",
         str(out_path),
         "-w",
@@ -177,13 +188,21 @@ def _curl_get_once(
         cmd.append("-4")
     if curl_has_flag(curl, "--ssl-no-revoke"):
         cmd.append("--ssl-no-revoke")
-    if curl_has_flag(curl, "--retry"):
+    if (not priority) and curl_has_flag(curl, "--retry"):
         cmd.extend(["--retry", "1", "--retry-delay", "0"])
     if extra:
         cmd.extend(extra)
     cmd.append(url)
     try:
-        result = subprocess.run(cmd, check=False, capture_output=True, **_popen_kw())
+        result = subprocess.run(
+            cmd,
+            check=False,
+            capture_output=True,
+            timeout=max(6, int(timeout) + 2),
+            **_popen_kw(),
+        )
+    except subprocess.TimeoutExpired:
+        return b"", "curl timeout"
     except OSError as exc:
         return b"", f"curl spawn failed: {exc}"
     body = b""
@@ -228,10 +247,63 @@ CURL_PLANS: tuple[dict[str, Any], ...] = (
 )
 
 
+def _persist_rate_limit() -> None:
+    with _RATE_LOCK:
+        remain = max(0.0, _RATE_BLOCK_UNTIL - time.monotonic())
+    try:
+        if remain > 1:
+            _RATE_PATH.write_text(str(time.time() + remain), encoding="utf-8")
+        elif _RATE_PATH.exists():
+            _RATE_PATH.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _restore_rate_limit() -> None:
+    try:
+        until = float(_RATE_PATH.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return
+    remain = until - time.time()
+    if remain > 1:
+        note_rate_limit(remain)
+
+
 def note_rate_limit(seconds: float = 20.0) -> None:
     global _RATE_BLOCK_UNTIL
     with _RATE_LOCK:
-        _RATE_BLOCK_UNTIL = max(_RATE_BLOCK_UNTIL, time.monotonic() + seconds)
+        _RATE_BLOCK_UNTIL = max(_RATE_BLOCK_UNTIL, time.monotonic() + max(0.0, float(seconds)))
+    _persist_rate_limit()
+
+
+def note_play_cooldown(seconds: float = PLAY_COOLDOWN) -> None:
+    global _PLAY_COOLDOWN_UNTIL
+    with _RATE_LOCK:
+        _PLAY_COOLDOWN_UNTIL = max(_PLAY_COOLDOWN_UNTIL, time.monotonic() + max(0.0, float(seconds)))
+
+
+def play_cooldown_remaining() -> float:
+    with _RATE_LOCK:
+        return max(0.0, _PLAY_COOLDOWN_UNTIL - time.monotonic())
+
+
+def play_cooling() -> bool:
+    return play_cooldown_remaining() > 0
+
+
+def hold_crawlers(seconds: float = 90.0) -> None:
+    """Pause background list crawlers so a user play/inspect click can get through."""
+    note_rate_limit(seconds)
+
+
+def is_blocked() -> bool:
+    with _RATE_LOCK:
+        return _RATE_BLOCK_UNTIL > time.monotonic()
+
+
+def blocked_remaining() -> float:
+    with _RATE_LOCK:
+        return max(0.0, _RATE_BLOCK_UNTIL - time.monotonic())
 
 
 def wait_rate_limit() -> None:
@@ -244,6 +316,12 @@ def wait_rate_limit() -> None:
 
 
 def warmup(timeout: int = 15) -> None:
+    cookie = cookie_path()
+    try:
+        if cookie.is_file() and time.time() - cookie.stat().st_mtime < 1800:
+            return
+    except OSError:
+        pass
     _curl_get_once(
         DEFAULT_REFERER,
         timeout=timeout,
@@ -255,15 +333,193 @@ def warmup(timeout: int = 15) -> None:
     )
 
 
-def is_cloudflare(raw: bytes | str) -> bool:
-    text = raw[:4000].decode("utf-8", errors="replace") if isinstance(raw, (bytes, bytearray)) else raw[:4000]
+_SSL_CTX = ssl.create_default_context()
+_POOL_LOCK = threading.Lock()
+_POOL: dict[tuple[str, str, int], deque[http.client.HTTPConnection]] = {}
+_POOL_MAX = 16
+
+
+def _conn_key(parsed: Any) -> tuple[str, str, int]:
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    return (parsed.scheme, host, int(port))
+
+
+def _borrow_conn(parsed: Any, timeout: int) -> http.client.HTTPConnection:
+    key = _conn_key(parsed)
+    conn = None
+    with _POOL_LOCK:
+        bucket = _POOL.get(key)
+        if bucket:
+            conn = bucket.popleft()
+    if conn is not None:
+        try:
+            conn.timeout = timeout
+            return conn
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    if parsed.scheme == "https":
+        return http.client.HTTPSConnection(
+            parsed.hostname or "",
+            parsed.port or 443,
+            timeout=timeout,
+            context=_SSL_CTX,
+        )
+    return http.client.HTTPConnection(parsed.hostname or "", parsed.port or 80, timeout=timeout)
+
+
+def _return_conn(parsed: Any, conn: http.client.HTTPConnection | None) -> None:
+    if conn is None:
+        return
+    key = _conn_key(parsed)
+    stale = None
+    with _POOL_LOCK:
+        bucket = _POOL.get(key)
+        if bucket is None:
+            bucket = deque()
+            _POOL[key] = bucket
+        if len(bucket) >= _POOL_MAX:
+            stale = bucket.popleft()
+        bucket.append(conn)
+    if stale is not None and stale is not conn:
+        try:
+            stale.close()
+        except Exception:
+            pass
+
+
+def pooled_get(
+    url: str,
+    *,
+    timeout: int = 20,
+    referer: str = DEFAULT_REFERER,
+    accept: str = "*/*",
+    extra_headers: dict[str, str] | None = None,
+    max_redirects: int = 5,
+) -> bytes:
+    """Keep-alive GET for CDN objects (covers, m3u8, keys, ts). Not for Cloudflare HTML."""
+    current = url
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": accept,
+        "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+        "Referer": referer,
+        "Connection": "keep-alive",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+    last_err = "empty"
+    for _hop in range(max_redirects + 1):
+        parsed = urlparse(current)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise RuntimeError(f"bad url: {current}")
+        path = parsed.path or "/"
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+        for attempt in range(2):
+            conn = None
+            try:
+                conn = _borrow_conn(parsed, timeout)
+                conn.request("GET", path, headers=headers)
+                resp = conn.getresponse()
+                status = resp.status
+                loc = resp.getheader("Location") or ""
+                if status in {301, 302, 303, 307, 308} and loc:
+                    resp.read()
+                    _return_conn(parsed, conn)
+                    current = urljoin(current, loc)
+                    break
+                data = resp.read() or b""
+                expected = resp.getheader("Content-Length") or ""
+                close = (resp.getheader("Connection") or "").lower() == "close" or status >= 400
+                short = False
+                if expected.isdigit():
+                    need = int(expected)
+                    if need > 0 and len(data) < need:
+                        short = True
+                        last_err = f"short read {len(data)}/{need}"
+                        close = True
+                if close:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                else:
+                    _return_conn(parsed, conn)
+                if status >= 400:
+                    last_err = f"http {status}"
+                    if attempt == 0:
+                        continue
+                    raise RuntimeError(last_err)
+                if short:
+                    if attempt == 0:
+                        continue
+                    raise RuntimeError(last_err)
+                return data
+            except Exception as exc:
+                last_err = str(exc)
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                if attempt == 0:
+                    continue
+                raise RuntimeError(last_err) from exc
+        else:
+            continue
+    raise RuntimeError(last_err)
+
+
+def cloudflare_kind(raw: bytes | str | None) -> str:
+    """Return 'denied' (1015/ban), 'challenge' (JS wall), or ''."""
+    if not raw:
+        return ""
+    if isinstance(raw, (bytes, bytearray)):
+        text = raw[:8000].decode("utf-8", errors="replace")
+    else:
+        text = raw[:8000]
     low = text.lower()
-    return (
+    if (
+        "you are being rate limited" in low
+        or "used cloudflare to restrict access" in low
+        or ("access denied" in low and "cloudflare" in low)
+        or "error 1015" in low
+        or ">1015<" in low
+        or "cf-error-details" in low and "1015" in low
+    ):
+        return "denied"
+    if (
         "just a moment" in low
         or "cf-browser-verification" in low
         or "challenge-platform" in low
         or "cf-chl-" in low
-    )
+    ):
+        return "challenge"
+    return ""
+
+
+def is_cloudflare(raw: bytes | str | None) -> bool:
+    return bool(cloudflare_kind(raw))
+
+
+def _note_cloudflare(raw: bytes | str | None, detail: str = "") -> str:
+    kind = cloudflare_kind(raw)
+    info = detail or ""
+    if kind == "denied" or "http=429" in info:
+        note_rate_limit(DENIED_PAUSE)
+        note_play_cooldown(PLAY_COOLDOWN)
+        return "denied"
+    if kind == "challenge":
+        note_rate_limit(CHALLENGE_PAUSE)
+        return "challenge"
+    if "http=503" in info or "http=403" in info:
+        note_rate_limit(min(90.0, CHALLENGE_PAUSE * 3))
+        return "challenge"
+    return kind
 
 
 def fetch_bytes(
@@ -276,12 +532,16 @@ def fetch_bytes(
     min_bytes: int = 1,
     validate: Callable[[bytes], bool] | None = None,
     extra: list[str] | None = None,
+    priority: bool = False,
 ) -> tuple[bytes, str]:
     last_detail = ""
     last_body = b""
-    n = max(1, retries)
+    n = 1 if priority else max(1, retries)
     for attempt in range(n):
-        wait_rate_limit()
+        if not priority:
+            wait_rate_limit()
+        elif attempt and is_blocked() and blocked_remaining() > 8:
+            break
         plan = CURL_PLANS[attempt % len(CURL_PLANS)]
         body, detail = _curl_get_once(
             url,
@@ -289,23 +549,51 @@ def fetch_bytes(
             referer=referer,
             accept=accept,
             extra=extra,
+            priority=priority,
+            connect_timeout=3 if priority else 15,
             **plan,
         )
         last_detail = detail
-        if body and len(body) >= min_bytes and (validate is None or validate(body)):
+        blocked = _note_cloudflare(body, detail)
+        if blocked == "denied":
+            last_body = body or last_body
+            last_detail = f"{detail} (cloudflare 1015)"
+            if priority:
+                break
+            wait_rate_limit()
+            continue
+        if body and len(body) >= min_bytes and not cloudflare_kind(body) and (
+            validate is None or validate(body)
+        ):
             return body, detail
         if body:
             last_body = body
-            if validate is not None and len(body) >= min_bytes:
+            if cloudflare_kind(body) or (validate is not None and len(body) >= min_bytes):
                 last_detail = f"{detail} (not a valid page)"
-        if "http=429" in detail or "http=503" in detail or "http=403" in detail:
-            wait = min(45.0, 8.0 * (2 ** attempt))
-            note_rate_limit(wait)
-            time.sleep(wait)
+        if blocked or "http=429" in detail or "http=503" in detail or "http=403" in detail:
+            if priority:
+                break
+            time.sleep(min(20.0, 6.0 * (attempt + 1)))
             continue
+        if priority:
+            break
         time.sleep(0.8 * (attempt + 1))
-    if last_body and len(last_body) >= min_bytes and (validate is None or validate(last_body)):
+    if (
+        last_body
+        and len(last_body) >= min_bytes
+        and not cloudflare_kind(last_body)
+        and (validate is None or validate(last_body))
+    ):
         return last_body, last_detail
+    skip_urllib = priority and (
+        cloudflare_kind(last_body)
+        or any(
+            tag in (last_detail or "")
+            for tag in ("http=403", "http=429", "http=503", "http=1015", "cloudflare")
+        )
+    )
+    if skip_urllib:
+        return last_body, last_detail or "priority skip urllib"
     headers = {
         "User-Agent": USER_AGENT,
         "Accept": accept,
@@ -316,7 +604,12 @@ def fetch_bytes(
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = resp.read() or b""
-        if data and len(data) >= min_bytes and (validate is None or validate(data)):
+        if (
+            data
+            and len(data) >= min_bytes
+            and not cloudflare_kind(data)
+            and (validate is None or validate(data))
+        ):
             return data, "urllib"
         last_detail = last_detail or f"urllib empty ({len(data)} bytes)"
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -332,8 +625,13 @@ def fetch_html(
     retries: int = 5,
     validate: Callable[[str], bool] | None = None,
     extra: list[str] | None = None,
+    priority: bool = False,
 ) -> tuple[str, str]:
-    """Fetch HTML. Returns (text, diagnostic). Raises RuntimeError on failure."""
+    """Fetch HTML. Returns (text, diagnostic). Raises RuntimeError on failure.
+
+    priority=True skips the global crawler backoff so a user click (play/inspect)
+    is not queued behind tag-cache 429 sleeps.
+    """
 
     extra_headers = list(extra or [])
     if "mode=async" in url and not any("X-Requested-With" in x for x in extra_headers):
@@ -350,28 +648,39 @@ def fetch_html(
         return True
 
     last_detail = ""
-    rounds = max(1, retries)
+    rounds = 1 if priority else max(1, retries)
     for attempt in range(rounds):
         body, detail = fetch_bytes(
             url,
             timeout=timeout,
             referer=referer,
             accept=HTML_ACCEPT,
-            retries=3,
+            retries=1 if priority else 3,
             min_bytes=400,
             validate=_ok,
             extra=extra_headers or None,
+            priority=priority,
         )
         last_detail = detail
         if body and _ok(body):
             return body.decode("utf-8", errors="replace"), detail
-        if "http=429" in detail or "http=503" in detail:
+        blocked = _note_cloudflare(body, detail)
+        if blocked == "denied":
+            if priority:
+                raise RuntimeError(f"fetch failed: {url} (cloudflare 1015 rate limited)")
+            print(f"warning: cloudflare 1015, pause crawlers  {detail}", file=sys.stderr, flush=True)
+            wait_rate_limit()
+            continue
+        if "http=429" in detail or "http=503" in detail or blocked:
+            if priority:
+                raise RuntimeError(f"fetch failed: {url} (rate limited)")
             wait = min(60.0, 5.0 * (2 ** attempt))
             print(f"warning: rate-limited, sleep {wait:.0f}s  {detail}", file=sys.stderr, flush=True)
             time.sleep(wait)
             warmup(timeout=min(20, timeout))
             continue
-        time.sleep(1.2 * (attempt + 1))
+        if attempt + 1 < rounds:
+            time.sleep(1.2 * (attempt + 1))
     raise RuntimeError(f"fetch failed: {url} ({last_detail})")
 
 
@@ -467,6 +776,7 @@ def fetch_many(
         result = None
 
     out_rows: list[tuple[str, bytes, str]] = []
+    denied = 0
     for url, dest in jobs:
         body = b""
         try:
@@ -475,7 +785,15 @@ def fetch_many(
         except OSError:
             body = b""
         detail = f"{exit_s} bytes={len(body)} parallel={pmax}"
+        if _note_cloudflare(body, detail) == "denied":
+            denied += 1
+            body = b""
+            detail += " (cloudflare 1015)"
+        elif cloudflare_kind(body):
+            body = b""
         out_rows.append((url, body, detail))
+    if denied:
+        note_rate_limit(DENIED_PAUSE)
     try:
         for item in work.iterdir():
             item.unlink(missing_ok=True)
@@ -483,3 +801,6 @@ def fetch_many(
     except OSError:
         pass
     return out_rows
+
+
+_restore_rate_limit()

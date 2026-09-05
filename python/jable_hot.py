@@ -95,7 +95,21 @@ DURATION_RE = re.compile(r'<span class="label">([^<]+)</span>', re.I)
 TITLE_RE = re.compile(r'<h6 class="title">\s*<a href="[^"]+">([^<]+)</a>', re.I | re.S)
 VIEWS_RE = re.compile(r'#icon-eye"></use></svg>\s*([0-9][0-9 \u00a0]*)', re.I)
 LIKES_RE = re.compile(r'#icon-heart-inline"></use></svg>\s*([0-9][0-9 \u00a0]*)', re.I)
+CARD_DATE_RE = re.compile(r"(20\d{2})[./\-](\d{1,2})[./\-](\d{1,2})")
+CARD_CAL_RE = re.compile(
+    r"(?:icon-calendar|#icon-calendar|公開|Added)[^<]{0,80}(20\d{2})[./\-](\d{1,2})[./\-](\d{1,2})",
+    re.I,
+)
+CARD_MODEL_RE = re.compile(
+    r"""href=['"](?:https://jable\.tv)?/models/([^\"'/?#]+)/?['\"][^>]*>([^<]{1,40})""",
+    re.I,
+)
+CARD_CHROME_RE = re.compile(r'<ul class="pagination"|class="pagination"|<footer\b', re.I)
 SHOT_ID_RE = re.compile(r"/videos_screenshots/\d+/(\d+)/")
+_NAV_ACTOR_RE = re.compile(
+    r"^(?:[«»‹›<>]+|首[頁页]|上一[頁页]|下一[頁页]|最後|最[前后]|Home|Last|Next|Prev|Previous)$",
+    re.I,
+)
 TOTAL_RE = re.compile(r"([0-9][0-9,]*)\s*部影片")
 PAGINATION_RE = re.compile(r'<ul class="pagination">(.*?)</ul>', re.I | re.S)
 FROM_RE = re.compile(r"\bfrom:(\d+)")
@@ -153,10 +167,80 @@ def preview_jpg_from_cover(cover: str) -> str:
     return ""
 
 
+_TITLE_CODE_RE = re.compile(r"^[A-Z]{2,10}-?\d+\S*\s+", re.I)
+_TITLE_NAME_RE = re.compile(
+    r"^(?:[A-Za-z][A-Za-z.\-]{1,19}|[\u4e00-\u9fff\u3040-\u30ff]{2,12})$"
+)
+_TITLE_CJK_TAIL_RE = re.compile(r"([\u4e00-\u9fff\u3040-\u30ff]{2,12})$")
+_NOT_ACTOR_NAME = {
+    "作品",
+    "出演",
+    "女優",
+    "女优",
+    "デビュー",
+    "編",
+    "話",
+    "SP",
+    "SEX",
+    "AV",
+}
+
+
+def good_actor_name(text: str) -> bool:
+    name = unescape_text((text or "").strip())
+    if not name:
+        return False
+    if _NAV_ACTOR_RE.match(name) or "首頁" in name or "首页" in name:
+        return False
+    if re.fullmatch(r"[«»‹›<>\s]+", name):
+        return False
+    if re.fullmatch(r"[a-f0-9]{32}", name, re.I):
+        return False
+    compact = re.sub(r"[\s\-_.]", "", name)
+    if len(compact) >= 24 and compact.isalnum():
+        return False
+    return True
+
+
+def actors_from_title(title: str) -> list[dict[str, str]]:
+    text = unescape_text(str(title or "")).strip()
+    if not text:
+        return []
+    text = _TITLE_CODE_RE.sub("", text, count=1).strip()
+    bits = re.split(r"[\s　]+", text)
+    names: list[str] = []
+    for bit in reversed(bits):
+        token = bit.strip("·・,，。.!！?？")
+        if not token or token in _NOT_ACTOR_NAME or not _TITLE_NAME_RE.match(token):
+            break
+        names.append(token)
+    names.reverse()
+    if len(names) > 2:
+        names = names[-2:]
+    if not names:
+        tail = _TITLE_CJK_TAIL_RE.search(text)
+        if tail:
+            names = [tail.group(1)]
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for name in names[:3]:
+        if not good_actor_name(name):
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"name": name, "slug": ""})
+    return out
+
+
 def parse_items(html: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
     for chunk in BOX_SPLIT_RE.split(html)[1:]:
+        chrome = CARD_CHROME_RE.search(chunk)
+        if chrome:
+            chunk = chunk[: chrome.start()]
         href_m = VIDEO_HREF_RE.search(chunk)
         if not href_m:
             continue
@@ -172,6 +256,19 @@ def parse_items(html: str) -> list[dict[str, Any]]:
         title_m = TITLE_RE.search(chunk)
         views_m = VIEWS_RE.search(chunk)
         likes_m = LIKES_RE.search(chunk)
+        date_m = CARD_CAL_RE.search(chunk) or CARD_DATE_RE.search(chunk)
+        actors = []
+        seen_actors: set[str] = set()
+        for slug, name in CARD_MODEL_RE.findall(chunk):
+            slug = (slug or "").strip()
+            name = unescape_text(name).strip()
+            if not slug or slug in seen_actors or not good_actor_name(name):
+                continue
+            seen_actors.add(slug)
+            actors.append({"name": name or slug, "slug": slug})
+        date = ""
+        if date_m:
+            date = f"{date_m.group(1)}-{int(date_m.group(2)):02d}-{int(date_m.group(3)):02d}"
         cover = cover_m.group(1) if cover_m else ""
         video_id = fav_m.group(1) if fav_m else ""
         if not video_id and cover:
@@ -190,6 +287,10 @@ def parse_items(html: str) -> list[dict[str, Any]]:
                 "duration": unescape_text(dur_m.group(1)) if dur_m else "",
                 "views": parse_int_digits(views_m.group(1) if views_m else ""),
                 "likes": parse_int_digits(likes_m.group(1) if likes_m else ""),
+                "date": date,
+                "actors": actors or actors_from_title(
+                    unescape_text(title_m.group(1)) if title_m else ""
+                ),
             }
         )
     return items

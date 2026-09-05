@@ -14,14 +14,23 @@ def main() -> None:
         page.goto("http://127.0.0.1:8765/", wait_until="networkidle")
         assert page.title() == "openDownload"
         assert page.locator("#query").is_visible()
-        assert page.locator(".board li").count() == 4
+        assert page.locator("#hero-title").inner_text() == "你想探索什么？"
+        assert page.locator("#hero-eyebrow").count() == 0
+        assert page.locator("#hero-lede").count() == 0
+        assert page.locator(".board").count() == 0
+        assert page.locator("#view-home").is_visible()
         page.get_by_role("tab", name="YouTube").click()
-        page.wait_for_function("location.hash.includes('youtube')")
+        page.locator("#view-youtube").wait_for(state="visible")
+        assert page.locator("#view-home").is_hidden()
         assert "频道" in (page.locator("#query").get_attribute("placeholder") or "")
+        page.locator("#btn-menu").click()
+        page.locator("#site-router.open").wait_for(state="visible")
         page.get_by_role("tab", name="抖音").click()
-        page.wait_for_function("location.hash.includes('douyin')")
+        page.locator("#view-douyin").wait_for(state="visible")
+        page.locator("#btn-menu").click()
+        page.locator("#site-router.open").wait_for(state="visible")
         page.get_by_role("tab", name="Jable").click()
-        page.wait_for_function("location.hash.includes('jable')")
+        page.locator("#view-jable").wait_for(state="visible")
         page.fill("#query", "mfyd-180")
         page.click("#btn-parse")
         page.locator("#panel-confirm").wait_for(state="visible", timeout=60000)
